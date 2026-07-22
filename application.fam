@@ -1,0 +1,18 @@
+App(
+    appid="meshcore_cfg",
+    name="MeshCore Config",
+    apptype=FlipperAppType.EXTERNAL,
+    entry_point="meshcore_cfg_app",
+    # Bumped once the UART + protocol layers land; the skeleton is cheap.
+    stack_size=2 * 1024,
+    fap_category="GPIO",
+    fap_icon="meshcore_10px.png",
+    fap_author="Greyrock Labs",
+    fap_version="0.1",
+    fap_description=(
+        "Configure MeshCore nodes over the Flipper hardware UART "
+        "(pin 13 = TX, 14 = RX, 18 = GND, 115200 8N1)."
+    ),
+    # `sources` intentionally left at the default ("*.c*", globbed recursively),
+    # which already picks up scenes/.
+)

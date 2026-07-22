@@ -1,0 +1,11 @@
+/*
+ * The one place scenes are registered.
+ *
+ * ADD_SCENE(prefix, name, id) expands into the scene enum, the handler
+ * prototypes and the handler tables — see meshcore_scene.h / .c. Adding a
+ * scene means adding a line here plus scenes/meshcore_scene_<name>.c.
+ *
+ * Deliberately has no include guard: it is included several times with a
+ * different ADD_SCENE definition each time.
+ */
+ADD_SCENE(meshcore, menu, Menu)
