@@ -76,3 +76,17 @@ uint32_t meshcore_logger_dropped(MeshCoreLogger* logger);
 
 /** Most recent reception, for the live display. False before the first one. */
 bool meshcore_logger_last_rx(MeshCoreLogger* logger, int8_t* snr_q4, int8_t* rssi);
+
+/** Record "I am standing here now" in events.csv.
+ *
+ *  Safe to call from the GUI thread: it only formats a row and posts it to the
+ *  writer, and never touches the card or the link. */
+void meshcore_logger_mark(MeshCoreLogger* logger);
+
+/** How many marks this session has, so the display can show the number that
+ *  was just written and the operator can say it out loud. */
+uint32_t meshcore_logger_marks(MeshCoreLogger* logger);
+
+/** Pings attempted and answered, for the live display. The ratio is the loss
+ *  figure the acceptance criteria are stated in. */
+void meshcore_logger_ping_stats(MeshCoreLogger* logger, uint32_t* sent, uint32_t* ok);
