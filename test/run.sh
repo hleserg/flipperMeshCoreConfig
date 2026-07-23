@@ -29,13 +29,14 @@ compile "$root/messenger/meshcore_messages.c" "$out/meshcore_messages.o" "${stri
 compile "$root/logger/meshcore_rxlog.c"      "$out/meshcore_rxlog.o"    "${strict[@]}"
 compile "$root/config/meshcore_json.c"       "$out/meshcore_json.o"     "${strict[@]}"
 compile "$root/config/meshcore_preset.c"     "$out/meshcore_preset.o"   "${strict[@]}"
+compile "$root/config/meshcore_apply.c"      "$out/meshcore_apply.o"    "${strict[@]}"
 compile "$root/test/fakes.c"                 "$out/fakes.o"             "${strict[@]}"
 compile "$root/test/test_meshcore.c"         "$out/test_meshcore.o"     "${strict[@]}"
 
 "${cc[@]}" \
     "$out/meshcore_companion.o" "$out/meshcore_link.o" "$out/meshcore_route.o" \
     "$out/meshcore_contacts.o" "$out/meshcore_messages.o" "$out/meshcore_rxlog.o" \
-    "$out/meshcore_json.o" "$out/meshcore_preset.o" \
+    "$out/meshcore_json.o" "$out/meshcore_preset.o" "$out/meshcore_apply.o" \
     "$out/fakes.o" "$out/test_meshcore.o" \
     -o "$out/test_meshcore"
 
