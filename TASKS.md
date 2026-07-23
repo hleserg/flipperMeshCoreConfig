@@ -68,11 +68,23 @@ To run in one batch once a node is on the bench:
 - [!] Messenger 1: contact list shows real peers with sane "last seen" ages
 - [!] Messenger 2: a message sent from another node/phone appears on the Flipper
 - [!] Messenger 3: a message typed on the Flipper arrives at another node
-- [!] Loopback sanity check (needs only a jumper between pins 13 and 14):
-      Connect should report *"Node refused the handshake"* and the serial log
-      should show identical `TX`/`RX` lines. That counterintuitive message is
-      the success signal — it proves the whole chain short of node-specific
-      parsing.
+- [!] **Loopback check — the highest-value pre-node test.** Needs only a
+      jumper between pins 13 and 14. Connect should report *"Node refused the
+      handshake"* and the serial log should show identical `TX`/`RX` lines.
+      That counterintuitive message is the success signal.
+
+      It now covers more than when it was first proposed. The echo of
+      `APP_START` comes back with lead byte `0x3C`, so the session worker
+      polls it, assembles it, parses code `0x01` as `MC_RESP_ERR`, routes it
+      as a Reply, sets the event flag, and the scene worker completes and
+      renders — which is exactly the threaded machinery that host tests
+      cannot reach. As a bonus the 5 s mailbox drain sends
+      `SYNC_NEXT_MESSAGE` (command code 10), whose echo parses as
+      `MC_RESP_NO_MORE_MESSAGES` (also code 10), so the multi-code routing
+      and the drain loop's exit condition get exercised too.
+
+      A hang or a crash here is a synchronisation bug that nothing else in the
+      current setup would surface.
 - [!] Whether the node accepts a runtime role change at all (see the Role
       caveat in AGENTS.md) — decides if `scene_role` is an editor or read-only
 - [!] Confirm the Heltec V4 works on stock `heltec_v4_companion_radio_usb`
@@ -89,3 +101,15 @@ To run in one batch once a node is on the bench:
   scene.
 - Delivery confirmation (`MC_PUSH_SEND_CONFIRMED`) is not tracked yet — needed
   once stage 3 can send, to tell "sent" from "delivered".
+- **Stale reply after a timeout.** The companion protocol puts no request id on
+  the wire, so a reply that arrives after its request gave up cannot be told
+  from the next request's reply. If request N times out and its answer lands
+  while request N+1 is armed with the same expected codes, N+1 completes early
+  on the wrong frame. Back-to-back mailbox drains are the realistic case. Not
+  fixed speculatively — a sequence tag would not help without wire-level
+  correlation. **If bring-up on a flaky link shows duplicated or misattributed
+  messages, look here first.**
+- The session's threaded mechanism (arming the slot, the event-flag
+  clear/wait/set dance) has no automated coverage — only the pure routing
+  policy does. The loopback jumper test is the cheapest way to exercise it; see
+  "Waiting for hardware".

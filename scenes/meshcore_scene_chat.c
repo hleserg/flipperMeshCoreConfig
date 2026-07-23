@@ -9,11 +9,15 @@
  */
 #include "../meshcore_cfg.h"
 
+static void meshcore_scene_chat_build(MeshCoreApp* app);
+
 void meshcore_scene_chat_on_enter(void* context) {
     MeshCoreApp* app = context;
 
-    /* Force a build on the first tick. */
-    scene_manager_set_scene_state(app->scene_manager, MeshCoreSceneChat, UINT32_MAX);
+    /* Build before showing: deferring to the first tick would leave the
+     * conversation blank for up to MESHCORE_TICK_PERIOD_MS. */
+    meshcore_scene_chat_build(app);
+    scene_manager_set_scene_state(app->scene_manager, MeshCoreSceneChat, app->messages.total);
     view_dispatcher_switch_to_view(app->view_dispatcher, MeshCoreViewWidget);
 }
 
