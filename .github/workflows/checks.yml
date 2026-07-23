@@ -42,8 +42,13 @@ jobs:
       # independent implementation decodes our frames, the layouts are right.
       - run: pip install meshcore
 
-      - name: stage 1 gate
+      - name: stage 1 gate — reference client reads the node
         run: python tools/node-emulator/tests/gate_stage1.py
+
+      # The stronger of the two: meshlog.py is field code written against real
+      # nodes. If it fills its CSVs from the fixture, the protocol is right.
+      - name: stage 2 gate — meshlog.py fills its CSVs
+        run: python tools/node-emulator/tests/gate_stage2.py --seconds 45
 
   firmware:
     name: build the FAP
