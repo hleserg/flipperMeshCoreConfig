@@ -110,20 +110,46 @@ def main() -> int:
 
     print()
 
-    # --- Mark's guide must keep pointing at the official flasher
+    # --- Mark's guide: exactly two edits, and no more
     mark = read("guide-mark.html")
-    check("flasher.meshcore.io" in mark, "Mark's guide still points at flasher.meshcore.io")
-    check(
-        "meshcore-node-fw" not in mark,
-        "Mark's guide does NOT point at our flasher",
-    )
+    check("meshcore-node-fw" in mark, "Mark's guide points at our flasher")
+    check("flasher.meshcore.io" not in mark, "and no longer at the official one")
     check('href="meshlog.py"' in mark, "Mark's guide offers meshlog.py for download")
+    check("Ты ничего не паяешь" in mark, "Mark's guide carries the 'you solder nothing' note")
+    check("это сторона Сергея" in mark, "wiring shown for reference only")
+    # His methodology must survive untouched: he is on the phone, over TCP and BLE.
+    check("Termux" in mark, "Mark keeps Termux")
+    check("Trace Path" in mark, "Mark keeps Trace Path")
 
-    # Sergey's guide splits the two flashers deliberately.
     sergey = read("guide-sergey.html")
-    check("meshcore-node-fw" in sergey, "Sergey's guide points at our flasher for the rovers")
-    check("flasher.meshcore.io" in sergey, "Sergey's guide points at the official one for repeaters")
+    check("meshcore-node-fw" in sergey, "Sergey's guide points at our flasher")
     check("Trace Path" in sergey, "Sergey's guide keeps the honest Trace Path gap")
+    # The word survives in the sentence explaining what was removed; what must
+    # be gone is the procedure — no termux- commands, no package juggling.
+    for gone in ["termux-wake-lock", "termux-location", "termux-setup-storage", "pkg upgrade"]:
+        check(gone not in sergey, f"Sergey's guide has no {gone}")
+
+    # --- the corrected pinout, by header position rather than GPIO name alone
+    for label, needle in [
+        ("T114 GND", "P1·4"),
+        ("T114 detect", "P1·8"),
+        ("T114 RX", "P1·12"),
+        ("T114 TX", "P1·13"),
+        ("V4 GND", "J2·1"),
+        ("V4 detect", "J2·12"),
+        ("V4 RX", "J2·13"),
+        ("V4 TX", "J2·14"),
+    ]:
+        check(needle in sergey, f"Sergey's guide gives {label} by header position", needle)
+
+    check("J3" not in sergey, "the old J3 header is gone from Sergey's guide")
+
+    wiring = ""
+    with open(os.path.join(ROOT, "docs-src", "svg", "wiring.svg"), encoding="utf-8") as handle:
+        wiring = handle.read()
+    for needle in ["P1·4", "P1·8", "P1·12", "P1·13", "J2·1", "J2·12", "J2·13", "J2·14"]:
+        check(needle in wiring, f"wiring diagram shows {needle}")
+    check("J3" not in wiring, "wiring diagram no longer mentions J3")
 
     print()
 
@@ -132,7 +158,9 @@ def main() -> int:
     # exactly the failure this is here to catch.
     src_dir = os.path.join(ROOT, "docs-src")
     for page_name, source_name in [
-        ("guide-mark.html", "guide-mark.md"),
+        # Mark's page renders from the transformed markdown, which the builder
+        # writes out so the two allowed edits stay reviewable.
+        ("guide-mark.html", "guide-mark.effective.md"),
         ("guide-sergey.html", "guide-sergey.md"),
         ("app-guide.html", "app-guide.md"),
     ]:
