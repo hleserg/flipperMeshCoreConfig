@@ -161,14 +161,16 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
 /* Launch argument -> the screen to open on. The menu is always underneath, so
  * Back still goes where the user expects.
  *
- * This exists to make the app testable without hands: the Flipper's `input
- * send` does not reach a running application, so a scene that can only be
- * opened by pressing OK can only be exercised by pressing OK. With this,
+ * For driving the app from a laptop:
  *
- *     loader open "MeshCore Config" logger
+ *     loader open /ext/apps/GPIO/meshcore_cfg.fap logger
+ *     input send ok short
  *
- * starts a logging session over the CLI, which is how a change to the logger
- * gets checked against a real node before anyone walks anywhere with it. */
+ * `input send` does reach a running application, so this is a convenience
+ * rather than the only way in — it skips walking the menu, which matters when
+ * the thing under test is three screens deep and the run has to be repeatable.
+ * `loader open "<App Name>"` does not resolve external FAPs; the path form is
+ * the one that takes an argument. */
 static const struct {
     const char* name;
     MeshCoreSceneId scene;
