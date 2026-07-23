@@ -31,8 +31,38 @@ ufbt cli          # serial CLI to the Flipper (log output)
 ufbt update       # pull/refresh the firmware SDK
 ```
 
-`ufbt` comes from PyPI: `pip install --user ufbt`. First `ufbt` run downloads
-the SDK into `.ufbt/` (git-ignored).
+`ufbt` comes from PyPI: `pip install ufbt`.
+
+### Target firmware: Unleashed
+
+**This app is built against the Unleashed SDK, not the official one.** Point
+ufbt at the Unleashed index once per machine, before the first build:
+
+```sh
+ufbt update --index-url=https://up.unleashedflip.com/directory.json --channel=release
+```
+
+To go back to official firmware:
+
+```sh
+ufbt update --index-url=https://update.flipperzero.one/firmware/directory.json --channel=release
+```
+
+This matters because a FAP records the API version it was compiled against and
+the firmware refuses to load one that asks for more than it provides. Official
+1.4.3 is API **87.1**; Unleashed `unlshd-089` is API **87.8**. Same major, so a
+FAP built against *official* still loads on Unleashed — but one built against
+Unleashed will **not** load on official firmware. Nothing catches this at build
+time; it fails on the device.
+
+The choice lives in `~/.ufbt/current/ufbt_state.json`, which a repository
+cannot pin — so check it whenever a build behaves unexpectedly:
+
+```sh
+cat ~/.ufbt/current/ufbt_state.json
+```
+
+The code itself uses no Unleashed-specific API, so it compiles against either.
 
 There are no unit tests; the build itself plus a run on hardware is the gate.
 **Do not call a step done until `ufbt` builds clean.**

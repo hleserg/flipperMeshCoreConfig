@@ -111,7 +111,7 @@ Profiles live in `/ext/apps_data/meshcore_cfg/profiles/` and look like this:
 Requires [`ufbt`](https://pypi.org/project/ufbt/):
 
 ```sh
-pip install --user ufbt
+pip install ufbt
 
 git clone https://github.com/hleserg/flipperMeshCoreConfig
 cd flipperMeshCoreConfig
@@ -121,6 +121,28 @@ ufbt launch       # build, upload to a connected Flipper and run
 ```
 
 Or copy `dist/meshcore_cfg.fap` to `/ext/apps/GPIO/` on the SD card by hand.
+
+### Which firmware you are building for
+
+A `.fap` records the API version it was compiled against, and the Flipper
+refuses to load one built against a newer API than it provides. So build
+against the SDK matching the firmware on your device.
+
+Development happens against **Unleashed**:
+
+```sh
+ufbt update --index-url=https://up.unleashedflip.com/directory.json --channel=release
+```
+
+For stock firmware:
+
+```sh
+ufbt update --index-url=https://update.flipperzero.one/firmware/directory.json --channel=release
+```
+
+The app uses no firmware-specific API, so it compiles against either. Note the
+asymmetry: a build made against official firmware also runs on Unleashed, but
+not the other way round — Unleashed's API minor version is ahead.
 
 ## Credits
 
