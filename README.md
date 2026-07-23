@@ -183,6 +183,20 @@ Both hardware UARTs are usable and interchangeable — pins 13/14 for the first,
 side by side. Rows are tagged with `node,role,hw` at the end of the line, which
 is how you tell which node heard what.
 
+### Where to solder on the node
+
+| Node | Header | Node RX ← Flipper 13 (TX) | Node TX → Flipper 14 (RX) | GND |
+| --- | --- | --- | --- | --- |
+| Heltec T114 (nRF52840) | P1 | UART1_RX, GPIO9 | UART1_TX, GPIO10 | pin 4 on P1 |
+| Heltec V4 (ESP32-S3) | J3 | GPIO47 | GPIO48 | pin 1 on J2 |
+
+Note the crossover: the Flipper's TX goes to the node's RX. Wiring TX to TX is
+the single most common reason a link stays silent.
+
+> On the T114 the silkscreen numbering does not match the Arduino GPIO
+> numbering. The pins above are from the pinout, but expect to confirm them on
+> the actual board — see `HANDOFF.md`.
+
 ### Powering the nodes
 
 **Do not power a node from the Flipper.** Connect GND and the two data lines
@@ -195,6 +209,25 @@ mid-walk costs you the session.
 Position is read **from the node**, not from the Flipper — the Flipper has no
 GPS. If the node has no position set, `lat`/`lon`/`acc` are written empty, the
 same as `meshlog.py` does.
+
+## What the Flipper can and cannot change
+
+Traced through the MeshCore sources, not assumed:
+
+| Setting | Editable from the Flipper? | How |
+| --- | --- | --- |
+| frequency, bandwidth, SF, CR | yes | `SET_RADIO_PARAMS` |
+| TX power | yes | `SET_RADIO_TX_POWER` |
+| node name | yes | `SET_ADVERT_NAME` |
+| path hash bytes | yes | `SET_PATH_HASH_MODE` — its own command, *not* part of set-radio |
+
+Path hash was expected to be a compile-time, flash-time choice. It is not: it
+lives in the node's saved preferences and changes at runtime, with
+`path_hash_bytes = path_hash_mode + 1`. The compile-time `PATH_HASH_SIZE` in
+the firmware is a different thing entirely — it sizes an internal struct field
+and is not overridable per build. Full trace in `AGENTS.md`.
+
+So every field in a preset is editable; none has to be a read-only label.
 
 ## Limitations
 

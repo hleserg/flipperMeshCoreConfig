@@ -339,6 +339,53 @@ loses at most the row in flight.
   receive buffer. The queue is deliberately shallow and drops rather than
   blocks; drops are counted and shown.
 
+## Settings layers — which parameters can the Flipper actually change?
+
+Traced through the MeshCore sources rather than assumed, because getting this
+wrong means either a dead editor or a setting that silently does nothing.
+
+| Parameter | Layer | How |
+| --- | --- | --- |
+| frequency, bandwidth, SF, CR | **runtime** | `CMD_SET_RADIO_PARAMS` (11) |
+| TX power | **runtime** | `CMD_SET_RADIO_TX_POWER` (12) |
+| node name | **runtime** | `CMD_SET_ADVERT_NAME` (8) |
+| path hash bytes | **runtime** | `CMD_SET_PATH_HASH_MODE` (61) — *a separate command, not part of set-radio* |
+
+**All four are editable on the Flipper.** Nothing in the preset needs to be a
+read-only label.
+
+### Path hash: the suspicion was wrong, and the name is overloaded
+
+Three different things in MeshCore are called "path hash":
+
+1. `#define PATH_HASH_SIZE 1` in `src/MeshCore.h` — compile-time, and **not
+   overridable from any variant's build flags** (checked across `variants/`
+   and `platformio.ini`). It sizes the hash field inside `Identity` and
+   `Channel` structs. Not a network profile knob, and not what a preset means.
+2. The **per-packet** hash width, carried on the wire: on receive the firmware
+   derives it as `path_hash_size = (path_len >> 6) + 1`, so the top two bits of
+   the path-length byte encode it. Valid range 1–3 (`Mesh::sendFlood` rejects
+   0 and >3).
+3. `path_hash_mode` in `NodePrefs` — **runtime**, which width this node uses
+   when *sending*.
+
+The mapping, from `MyMesh.cpp`: `sendFlood(pkt, delay, _prefs.path_hash_mode + 1)`.
+
+```
+path_hash_bytes = path_hash_mode + 1     mode 0 -> 1 byte
+                                         mode 1 -> 2 bytes
+                                         mode 2 -> 3 bytes
+```
+
+Setting it: payload `[61][0][mode]`, with `mode < 3` enforced by the firmware
+(`ERR_CODE_ILLEGAL_ARG` otherwise). Note the mandatory zero second byte. The
+value is persisted with `savePrefs()` and reported back in `DEVICE_INFO` when
+`fw_ver >= 10`, which is how Apply can verify it took.
+
+So a preset carrying `path_hash_bytes: 2` is applied by sending
+`[61][0][1]` — separately from set-radio, exactly as the spec expected, but
+because it is a *different command*, not because it is a different layer.
+
 ## Node firmware requirements
 
 The node must run a **companion** build whose `ArduinoSerialInterface` is bound
