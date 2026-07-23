@@ -201,6 +201,8 @@ static const struct {
     {"contacts", MeshCoreSceneContacts},
     {"profiles", MeshCoreSceneProfiles},
     {"radio", MeshCoreSceneRadio},
+    {"identity", MeshCoreSceneIdentity},
+    {"advert", MeshCoreSceneAdvert},
     {"log", MeshCoreSceneLog},
 };
 
