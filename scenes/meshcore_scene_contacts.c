@@ -24,9 +24,11 @@ static const char* meshcore_contacts_run(MeshCoreApp* app) {
     mc_event_t ev;
     size_t len;
 
-    if(!meshcore_session_start(app->session)) {
-        return "Cannot take the USART.\nAnother app is holding it.";
-    }
+    /* Connect ourselves rather than making the user find the Connect screen
+     * first: opening the messenger should just work. Idempotent, so if they did
+     * connect it is free. */
+    const char* err = meshcore_connect_ensure(app);
+    if(err != NULL) return err;
 
     /* Ages are relative to the node's clock, not the Flipper's — last_advert
      * is in the node's timebase. A node that will not tell us the time just
@@ -89,7 +91,7 @@ static void meshcore_scene_contacts_show_error(MeshCoreApp* app) {
         sizeof(text),
         "\e#Contacts\n"
         "%s\n\n"
-        "Run Connect first, and check\nthe node has peers.",
+        "Plug the node in and reboot\nit, so it comes up in serial.",
         app->worker_error);
     widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, text);
     view_dispatcher_switch_to_view(app->view_dispatcher, MeshCoreViewWidget);

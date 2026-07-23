@@ -146,3 +146,13 @@ typedef struct {
     FuriString* text_buf[2];
     uint8_t text_buf_slot;
 } MeshCoreApp;
+
+/* Bring the shared session up if it is not already: start the UART and do the
+ * APP_START / DEVICE_QUERY handshake, filling app->node. A no-op when already
+ * connected. Returns NULL on success or a short reason to show.
+ *
+ * This is what lets the messenger and configurator connect themselves — the
+ * user should not have to visit a Connect screen before using them. It blocks
+ * on the link, so call it from a worker thread, never the GUI thread. Defined
+ * in scenes/meshcore_scene_connect.c. */
+const char* meshcore_connect_ensure(MeshCoreApp* app);

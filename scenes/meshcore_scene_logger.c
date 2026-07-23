@@ -23,6 +23,16 @@ static void meshcore_scene_logger_button(GuiButtonType type, InputType input, vo
 
 static int32_t meshcore_logger_scene_worker(void* context) {
     MeshCoreApp* app = context;
+
+    /* The logger runs its own session, but on the same UART the messenger's
+     * session uses. If the messenger connected itself (opening Contacts now
+     * does), that session is holding the port — hand it over, or the logger
+     * would fail to take the UART. The mailbox no-ops while it is down, and the
+     * messenger reconnects itself the next time it is opened. */
+    if(meshcore_session_is_running(app->session)) {
+        meshcore_session_stop(app->session);
+    }
+
     meshcore_logger_start(app->logger);
     view_dispatcher_send_custom_event(app->view_dispatcher, MESHCORE_LOGGER_EVENT_STARTED);
     return 0;
