@@ -176,3 +176,8 @@ void meshcore_log_snapshot(MeshCoreLog* log, FuriString* out) {
 void meshcore_log_clear(MeshCoreLog* log) {
     UNUSED(log);
 }
+
+uint32_t meshcore_log_revision(MeshCoreLog* log) {
+    UNUSED(log);
+    return g_frames_tx + g_frames_rx;
+}

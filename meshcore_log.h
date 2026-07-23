@@ -30,4 +30,9 @@ void meshcore_log_frame(MeshCoreLog* log, bool tx, const uint8_t* payload, size_
 /** Copy the current contents into `out` for display. */
 void meshcore_log_snapshot(MeshCoreLog* log, FuriString* out);
 
+/** Bumped on every append. A view can compare it against what it last drew and
+ *  skip the redraw otherwise — redrawing a scrollable view resets the user's
+ *  scroll position, so doing it on a timer makes the view feel broken. */
+uint32_t meshcore_log_revision(MeshCoreLog* log);
+
 void meshcore_log_clear(MeshCoreLog* log);

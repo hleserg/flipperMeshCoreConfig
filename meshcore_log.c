@@ -5,12 +5,14 @@
 struct MeshCoreLog {
     FuriString* text;
     FuriMutex* mutex;
+    uint32_t revision;
 };
 
 MeshCoreLog* meshcore_log_alloc(void) {
     MeshCoreLog* log = malloc(sizeof(MeshCoreLog));
     log->text = furi_string_alloc();
     log->mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    log->revision = 0;
     return log;
 }
 
@@ -46,6 +48,7 @@ void meshcore_log_printf(MeshCoreLog* log, const char* format, ...) {
     furi_string_cat_str(log->text, "\n");
 
     meshcore_log_trim(log);
+    log->revision++;
     furi_mutex_release(log->mutex);
 }
 
@@ -72,6 +75,7 @@ void meshcore_log_frame(MeshCoreLog* log, bool tx, const uint8_t* payload, size_
     furi_string_cat_str(log->text, "\n");
 
     meshcore_log_trim(log);
+    log->revision++;
     furi_mutex_release(log->mutex);
 }
 
@@ -86,5 +90,14 @@ void meshcore_log_clear(MeshCoreLog* log) {
     furi_assert(log);
     furi_mutex_acquire(log->mutex, FuriWaitForever);
     furi_string_reset(log->text);
+    log->revision++;
     furi_mutex_release(log->mutex);
+}
+
+uint32_t meshcore_log_revision(MeshCoreLog* log) {
+    furi_assert(log);
+    furi_mutex_acquire(log->mutex, FuriWaitForever);
+    uint32_t revision = log->revision;
+    furi_mutex_release(log->mutex);
+    return revision;
 }

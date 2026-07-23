@@ -26,6 +26,8 @@ void meshcore_scene_log_on_enter(void* context) {
     text_box_set_font(app->text_box, TextBoxFontHex);
     text_box_set_focus(app->text_box, TextBoxFocusEnd);
     meshcore_scene_log_refresh(app);
+    scene_manager_set_scene_state(
+        app->scene_manager, MeshCoreSceneLog, meshcore_log_revision(app->log));
 
     view_dispatcher_switch_to_view(app->view_dispatcher, MeshCoreViewTextBox);
 }
@@ -34,7 +36,15 @@ bool meshcore_scene_log_on_event(void* context, SceneManagerEvent event) {
     MeshCoreApp* app = context;
 
     if(event.type == SceneManagerEventTypeTick) {
-        meshcore_scene_log_refresh(app);
+        /* Refresh only when a line was actually added. Handing the TextBox new
+         * text snaps it back to the focus position, so refreshing on every
+         * tick makes scrolling back through the log impossible. */
+        uint32_t shown = scene_manager_get_scene_state(app->scene_manager, MeshCoreSceneLog);
+        uint32_t now = meshcore_log_revision(app->log);
+        if(shown != now) {
+            scene_manager_set_scene_state(app->scene_manager, MeshCoreSceneLog, now);
+            meshcore_scene_log_refresh(app);
+        }
         return true;
     }
 
