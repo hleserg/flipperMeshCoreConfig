@@ -13,6 +13,7 @@
  */
 #include <furi.h>
 
+#include "../config/meshcore_apply.h"
 #include "../config/meshcore_json.h"
 #include "../config/meshcore_preset.h"
 #include "../logger/meshcore_rxlog.h"
@@ -1044,6 +1045,129 @@ static void test_preset_from_json(void) {
     }
 }
 
+/* ======================================================================== *
+ *  Applying a preset
+ * ======================================================================== */
+static MeshCorePreset sample_preset(bool with_name) {
+    MeshCorePreset preset;
+    memset(&preset, 0, sizeof(preset));
+    snprintf(preset.name, sizeof(preset.name), "City/daily");
+    preset.freq_khz = 868731;
+    preset.bw_hz = 62500;
+    preset.sf = 7;
+    preset.cr = 7;
+    preset.path_hash_bytes = 2;
+    if(with_name) {
+        preset.has_node_name = true;
+        snprintf(preset.node_name, sizeof(preset.node_name), "ROVER-1");
+    }
+    return preset;
+}
+
+static void test_apply_build(void) {
+    section("apply: building the commands a preset turns into");
+
+    MeshCorePreset preset = sample_preset(false);
+    uint8_t out[64];
+
+    /* Radio: one command carrying all four values, in wire units. */
+    size_t len = meshcore_apply_build(&preset, MeshCoreApplyRadio, out, sizeof(out));
+    CHECK_EQ_U32(len, 11, "radio payload length");
+    CHECK_EQ_U32(out[0], MC_CMD_SET_RADIO_PARAMS, "radio command code");
+    CHECK_EQ_U32(
+        (uint32_t)out[1] | ((uint32_t)out[2] << 8) | ((uint32_t)out[3] << 16) |
+            ((uint32_t)out[4] << 24),
+        868731,
+        "frequency goes out in kHz");
+    CHECK_EQ_U32(
+        (uint32_t)out[5] | ((uint32_t)out[6] << 8) | ((uint32_t)out[7] << 16) |
+            ((uint32_t)out[8] << 24),
+        62500,
+        "bandwidth goes out in Hz");
+    CHECK_EQ_U32(out[9], 7, "spreading factor");
+    CHECK_EQ_U32(out[10], 7, "coding rate");
+
+    /* Path hash: its own command, and the mandatory zero byte. */
+    len = meshcore_apply_build(&preset, MeshCoreApplyPathHash, out, sizeof(out));
+    CHECK_EQ_U32(len, 3, "path hash payload length");
+    CHECK_EQ_U32(out[0], MESHCORE_CMD_SET_PATH_HASH_MODE, "path hash command code is 61");
+    CHECK_EQ_U32(out[1], 0, "the second byte must be zero or firmware rejects it");
+    CHECK_EQ_U32(out[2], 1, "2 bytes is mode 1");
+
+    /* Name: skipped entirely when the preset does not carry one -- sending an
+     * empty name would wipe the node's own. */
+    CHECK(!meshcore_apply_step_applies(&preset, MeshCoreApplyName), "no name means no name step");
+    CHECK_EQ_U32(
+        meshcore_apply_build(&preset, MeshCoreApplyName, out, sizeof(out)),
+        0,
+        "and builds nothing");
+
+    MeshCorePreset named = sample_preset(true);
+    CHECK(meshcore_apply_step_applies(&named, MeshCoreApplyName), "a named preset sets the name");
+    len = meshcore_apply_build(&named, MeshCoreApplyName, out, sizeof(out));
+    CHECK_EQ_U32(len, 1 + 7, "name payload length");
+    CHECK_EQ_U32(out[0], MC_CMD_SET_ADVERT_NAME, "name command code");
+    CHECK(memcmp(out + 1, "ROVER-1", 7) == 0, "name bytes");
+
+    /* A buffer too small must refuse rather than write a short command. */
+    uint8_t tiny[2];
+    CHECK_EQ_U32(
+        meshcore_apply_build(&preset, MeshCoreApplyPathHash, tiny, sizeof(tiny)),
+        0,
+        "an undersized buffer is refused");
+}
+
+static void test_apply_verify(void) {
+    section("apply: judging the read-back");
+
+    MeshCorePreset preset = sample_preset(true);
+
+    mc_self_info_t info;
+    memset(&info, 0, sizeof(info));
+    info.radio_freq = 868731;
+    info.radio_bw = 62500;
+    info.radio_sf = 7;
+    info.radio_cr = 7;
+    snprintf(info.name, sizeof(info.name), "ROVER-1");
+
+    CHECK(meshcore_apply_verify_radio(&preset, &info), "matching radio settings verify");
+    CHECK(meshcore_apply_verify_name(&preset, &info), "matching name verifies");
+
+    /* Each field on its own has to be able to fail, or the tick means nothing. */
+    info.radio_sf = 10;
+    CHECK(!meshcore_apply_verify_radio(&preset, &info), "a wrong spreading factor fails");
+    info.radio_sf = 7;
+    info.radio_bw = 250000;
+    CHECK(!meshcore_apply_verify_radio(&preset, &info), "a wrong bandwidth fails");
+    info.radio_bw = 62500;
+
+    snprintf(info.name, sizeof(info.name), "SOMETHING-ELSE");
+    CHECK(!meshcore_apply_verify_name(&preset, &info), "a wrong name fails");
+
+    /* A preset with no name asks nothing, so it cannot fail. */
+    MeshCorePreset nameless = sample_preset(false);
+    CHECK(meshcore_apply_verify_name(&nameless, &info), "an unset name is not a failure");
+
+    /* Path hash: reported only on fw_ver >= 10, so an old node must read as
+     * unknown rather than as wrong. */
+    mc_device_info_t device;
+    memset(&device, 0, sizeof(device));
+    bool checkable = true;
+    device.have_path_hash = 0;
+    CHECK(!meshcore_apply_verify_path_hash(&preset, &device, &checkable), "old firmware: no result");
+    CHECK(!checkable, "and it is flagged as uncheckable, not as a failure");
+
+    device.have_path_hash = 1;
+    device.path_hash_mode = 1; /* 2 bytes */
+    CHECK(
+        meshcore_apply_verify_path_hash(&preset, &device, &checkable),
+        "a matching path hash verifies");
+    CHECK(checkable, "and is flagged as checkable");
+
+    device.path_hash_mode = 0;
+    CHECK(!meshcore_apply_verify_path_hash(&preset, &device, &checkable), "a wrong mode fails");
+}
+
 /* ======================================================================== */
 int main(void) {
     printf("MeshCore Config — host protocol tests\n");
@@ -1080,6 +1204,9 @@ int main(void) {
     test_json_get();
     test_preset_builtin();
     test_preset_from_json();
+
+    test_apply_build();
+    test_apply_verify();
 
     test_rxlog_parse();
     test_rxlog_format();

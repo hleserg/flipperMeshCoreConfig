@@ -68,6 +68,9 @@ CMD_GET_BATT_AND_STORAGE = 20
 CMD_DEVICE_QUERY = 22
 CMD_GET_CHANNEL = 31
 CMD_GET_STATS = 56
+CMD_SET_PATH_HASH_MODE = 61
+
+ERR_ILLEGAL_ARG = 2
 
 # ---------------------------------------------------------------- responses
 RESP_OK = 0
@@ -151,6 +154,11 @@ class NodeState:
         self.cr = 5
         self.tx_power = 22
         self.max_tx_power = 30
+
+        # Which path hash width this node sends with. Runtime, its own command,
+        # persisted by real firmware -- so a preset apply has something to
+        # change and something to read back. Bytes on the wire = mode + 1.
+        self.path_hash_mode = 0
 
         # Advertised position: somewhere unremarkable, so logs look real.
         self.lat = 55_751_244  # degrees x 1e6
@@ -241,8 +249,10 @@ class CompanionEmulator:
         s = self.state
         # fw_ver 9 is the lowest that carries the repeater flag; anything >= 3
         # brings the model and version strings, which is what identifies us.
+        # fw_ver 10 is the first that reports path_hash_mode, which is what a
+        # preset apply reads back to prove it took.
         body = bytearray()
-        body.append(9)  # fw_ver
+        body.append(10)  # fw_ver
         body.append(175)  # max_contacts / 2 -> 350
         body.append(20)  # max_channels
         body += struct.pack("<I", 123456)  # ble_pin
@@ -250,6 +260,7 @@ class CompanionEmulator:
         body += _cstr(s.model, 40)
         body += _cstr("v1.12.0", 20)
         body.append(0)  # repeat (fw_ver >= 9)
+        body.append(s.path_hash_mode)  # (fw_ver >= 10)
         return bytes([RESP_DEVICE_INFO]) + bytes(body)
 
     def _battery(self) -> bytes:
@@ -398,6 +409,17 @@ class CompanionEmulator:
             freq, bw, sf, cr = struct.unpack("<IIBB", payload[1:11])
             self.state.freq_khz, self.state.bw_hz = freq, bw
             self.state.sf, self.state.cr = sf, cr
+            return [bytes([RESP_OK])]
+
+        if cmd == CMD_SET_PATH_HASH_MODE:
+            # [61][0][mode]. The zero second byte is mandatory and the firmware
+            # rejects a mode of 3 or more; both are reproduced so a client that
+            # gets either wrong finds out here rather than on a real node.
+            if len(payload) < 3 or payload[1] != 0:
+                return [bytes([RESP_ERR, ERR_ILLEGAL_ARG])]
+            if payload[2] >= 3:
+                return [bytes([RESP_ERR, ERR_ILLEGAL_ARG])]
+            self.state.path_hash_mode = payload[2]
             return [bytes([RESP_OK])]
 
         if cmd == CMD_SET_RADIO_TX_POWER and len(payload) >= 5:

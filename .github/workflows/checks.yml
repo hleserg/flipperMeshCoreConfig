@@ -50,6 +50,11 @@ jobs:
       - name: stage 2 gate — meshlog.py fills its CSVs
         run: python tools/node-emulator/tests/gate_stage2.py --seconds 45
 
+      # The command sequence a preset apply sends, and the read-back that
+      # makes Apply's ticks mean something.
+      - name: preset apply gate
+        run: python tools/node-emulator/tests/gate_apply.py
+
   firmware:
     name: build the FAP
     runs-on: ubuntu-latest
