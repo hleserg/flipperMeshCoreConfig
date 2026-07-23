@@ -55,6 +55,29 @@ jobs:
       - name: preset apply gate
         run: python tools/node-emulator/tests/gate_apply.py
 
+  docs:
+    name: docs site
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Pages deploys straight from /docs with no build step, so the committed
+      # HTML *is* the site. Rebuilding and diffing catches the classic mistake:
+      # editing a source file and forgetting to commit the output.
+      - name: rebuild and check nothing drifted
+        run: |
+          python tools/docs-build/build.py
+          git diff --exit-code -- docs/ || {
+            echo "::error::docs/ is out of date -- run tools/docs-build/build.py and commit the result"
+            exit 1
+          }
+
+      - name: verify the site keeps its promises
+        run: python tools/docs-build/verify.py
+
   firmware:
     name: build the FAP
     runs-on: ubuntu-latest
