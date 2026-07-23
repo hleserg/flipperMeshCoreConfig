@@ -23,6 +23,7 @@
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
 #include <gui/scene_manager.h>
+#include <gui/view.h>
 #include <gui/modules/loading.h>
 #include <gui/modules/submenu.h>
 #include <gui/modules/text_box.h>
@@ -52,6 +53,7 @@ typedef enum {
     MeshCoreViewLoading,
     MeshCoreViewTextInput,
     MeshCoreViewVarList,
+    MeshCoreViewSplash,
 } MeshCoreViewId;
 
 /* What the node told us about itself. Filled by scene_connect from SELF_INFO
@@ -90,6 +92,10 @@ typedef struct {
     Loading* loading;
     TextInput* text_input;
     VariableItemList* var_list;
+    /* A hand-drawn View for the animated splash — the standard modules cannot
+     * do a per-frame canvas animation, so this one owns its own draw. */
+    View* splash_view;
+    FuriTimer* splash_timer;
 
     /* Transport + protocol */
     MeshCoreLog* log;
@@ -163,3 +169,7 @@ typedef struct {
  * on the link, so call it from a worker thread, never the GUI thread. Defined
  * in scenes/meshcore_scene_connect.c. */
 const char* meshcore_connect_ensure(MeshCoreApp* app);
+
+/* Allocate the splash's hand-drawn View (draw/input callbacks + model). Defined
+ * in scenes/meshcore_scene_splash.c, called from the app's view setup. */
+View* meshcore_scene_splash_view_alloc(MeshCoreApp* app);

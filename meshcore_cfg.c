@@ -87,6 +87,10 @@ static MeshCoreApp* meshcore_cfg_app_alloc(void) {
     view_dispatcher_add_view(
         app->view_dispatcher, MeshCoreViewVarList, variable_item_list_get_view(app->var_list));
 
+    app->splash_view = meshcore_scene_splash_view_alloc(app);
+    view_dispatcher_add_view(app->view_dispatcher, MeshCoreViewSplash, app->splash_view);
+    app->splash_timer = NULL;
+
     app->log = meshcore_log_alloc();
     /* Configurator and Messenger share one node on the USART. The Logger runs
      * its own session, so it can sit on either port. */
@@ -158,6 +162,7 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewLoading);
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewTextInput);
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewVarList);
+    view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewSplash);
 
     submenu_free(app->submenu);
     widget_free(app->widget);
@@ -165,6 +170,7 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     loading_free(app->loading);
     text_input_free(app->text_input);
     variable_item_list_free(app->var_list);
+    view_free(app->splash_view);
 
     furi_string_free(app->text_buf[0]);
     furi_string_free(app->text_buf[1]);
@@ -228,6 +234,13 @@ int32_t meshcore_cfg_app(void* p) {
      * on_enter starts a worker would have that worker post an event into a
      * queue nobody is reading yet. */
     scene_manager_next_scene(app->scene_manager, MeshCoreSceneMenu);
+
+    /* On a normal launch, play the splash on top of the menu; it pops itself
+     * when done. A launch argument means a script is driving, so skip straight
+     * past it. */
+    if(app->launch_scene == MeshCoreSceneNum) {
+        scene_manager_next_scene(app->scene_manager, MeshCoreSceneSplash);
+    }
 
     view_dispatcher_run(app->view_dispatcher);
     meshcore_cfg_app_free(app);
