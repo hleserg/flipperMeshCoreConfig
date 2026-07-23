@@ -88,6 +88,11 @@ static MeshCoreApp* meshcore_cfg_app_alloc(void) {
 
     meshcore_contacts_reset(&app->contacts);
     meshcore_messages_reset(&app->messages);
+    /* Built-ins only for now; the card is read the first time Profiles opens,
+     * so a session that never goes there never waits on storage. */
+    meshcore_preset_store_init(&app->presets);
+    app->preset_index = 0;
+    memset(app->apply_result, 0, sizeof(app->apply_result));
     memset(app->chat_peer, 0, sizeof(app->chat_peer));
     app->chat_peer_name[0] = '\0';
     app->node_time = 0;
@@ -125,6 +130,9 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     meshcore_mailbox_free(app->mailbox);
     meshcore_logger_free(app->logger);
     meshcore_session_free(app->session);
+    /* After everything that logs has stopped, so the file has the whole run in
+     * it, and before the log itself goes away. */
+    meshcore_log_dump(app->log);
     meshcore_log_free(app->log);
 
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewSubmenu);
@@ -168,6 +176,7 @@ static const struct {
     {"logger", MeshCoreSceneLogger},
     {"connect", MeshCoreSceneConnect},
     {"contacts", MeshCoreSceneContacts},
+    {"profiles", MeshCoreSceneProfiles},
     {"log", MeshCoreSceneLog},
 };
 

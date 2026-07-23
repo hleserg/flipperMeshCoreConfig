@@ -77,12 +77,15 @@ bool meshcore_scene_menu_on_event(void* context, SceneManagerEvent event) {
         case MeshCoreMenuIndexLogger:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneLogger);
             break;
+        case MeshCoreMenuIndexProfiles:
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneProfiles);
+            break;
         case MeshCoreMenuIndexSerialLog:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneLog);
             break;
         default:
-            /* Radio / Identity / Role / Profiles / Send advert land in steps
-             * 4 and 5; the selection is remembered until then. */
+            /* Radio / Identity / Role / Send advert are still ahead; the
+             * selection is remembered until then. */
             break;
         }
 
