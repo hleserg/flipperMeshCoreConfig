@@ -15,6 +15,13 @@
  * Position comes from the node, never from the Flipper — the Flipper has no
  * GPS. A node that does not advertise a position logs empty lat/lon/acc, the
  * same as meshlog.py does.
+ *
+ * 🚨 Do not read a session's CSVs over the Flipper CLI while the logger is
+ * running. The files are held open for append, and `storage read` on one of
+ * them wedges the storage service — after which every later command that
+ * touches storage hangs too, `loader close` included, and the device needs a
+ * Back+Left reboot. Stop the logger first (Back, or `loader close`); the files
+ * are closed on the way out and every row is already synced to the card.
  */
 #pragma once
 

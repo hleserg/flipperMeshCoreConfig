@@ -150,11 +150,50 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     free(app);
 }
 
+/* Launch argument -> the screen to open on. The menu is always underneath, so
+ * Back still goes where the user expects.
+ *
+ * This exists to make the app testable without hands: the Flipper's `input
+ * send` does not reach a running application, so a scene that can only be
+ * opened by pressing OK can only be exercised by pressing OK. With this,
+ *
+ *     loader open "MeshCore Config" logger
+ *
+ * starts a logging session over the CLI, which is how a change to the logger
+ * gets checked against a real node before anyone walks anywhere with it. */
+static const struct {
+    const char* name;
+    MeshCoreSceneId scene;
+} meshcore_cfg_launch_args[] = {
+    {"logger", MeshCoreSceneLogger},
+    {"connect", MeshCoreSceneConnect},
+    {"contacts", MeshCoreSceneContacts},
+    {"log", MeshCoreSceneLog},
+};
+
 int32_t meshcore_cfg_app(void* p) {
-    UNUSED(p);
+    const char* arg = p;
 
     MeshCoreApp* app = meshcore_cfg_app_alloc();
+    app->launch_scene = MeshCoreSceneNum;
+
+    if(arg != NULL && arg[0] != '\0') {
+        for(size_t i = 0; i < COUNT_OF(meshcore_cfg_launch_args); i++) {
+            if(strcmp(arg, meshcore_cfg_launch_args[i].name) == 0) {
+                app->launch_scene = meshcore_cfg_launch_args[i].scene;
+                break;
+            }
+        }
+        /* An unknown argument leaves the menu open rather than failing to
+         * start: a typo should not look like a crash. */
+    }
+
+    /* The menu opens the requested scene on its first tick, once the dispatcher
+     * is serving its queue. Doing it here instead crashes: a scene whose
+     * on_enter starts a worker would have that worker post an event into a
+     * queue nobody is reading yet. */
     scene_manager_next_scene(app->scene_manager, MeshCoreSceneMenu);
+
     view_dispatcher_run(app->view_dispatcher);
     meshcore_cfg_app_free(app);
 

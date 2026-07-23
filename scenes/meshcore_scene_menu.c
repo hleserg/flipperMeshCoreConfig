@@ -50,6 +50,18 @@ void meshcore_scene_menu_on_enter(void* context) {
 bool meshcore_scene_menu_on_event(void* context, SceneManagerEvent event) {
     MeshCoreApp* app = context;
 
+    /* A scene named on the command line opens here, on the first tick, rather
+     * than before view_dispatcher_run(). By now the dispatcher is serving its
+     * queue, so a scene that starts a worker has somewhere for that worker's
+     * completion event to go. Consumed, so Back returns to the menu instead of
+     * reopening it. */
+    if(event.type == SceneManagerEventTypeTick && app->launch_scene != MeshCoreSceneNum) {
+        MeshCoreSceneId scene = app->launch_scene;
+        app->launch_scene = MeshCoreSceneNum;
+        scene_manager_next_scene(app->scene_manager, scene);
+        return true;
+    }
+
     if(event.type == SceneManagerEventTypeCustom) {
         scene_manager_set_scene_state(app->scene_manager, MeshCoreSceneMenu, event.event);
 

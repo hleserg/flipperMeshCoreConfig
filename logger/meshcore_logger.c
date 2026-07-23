@@ -20,8 +20,19 @@
  * SD latency off the UART thread, not to buffer a flood. */
 #define MESHCORE_LOG_QUEUE_DEPTH 8u
 #define MESHCORE_LOG_WRITER_STACK 2048u
-/* The poller blocks on the link, so it needs room for a full event struct. */
-#define MESHCORE_LOG_POLLER_STACK 2048u
+/* Sized against the measured worst frame rather than guessed: an mc_event_t
+ * (252 bytes) plus a command payload (255) plus one MeshCoreLogLine (644) plus
+ * the small formatting buffers, so a little over 1200 with snprintf on top.
+ *
+ * This started at 2048 and the thread died silently, taking the app with it.
+ * Two things were wrong and both are fixed: the contact list was on the stack
+ * (3664 bytes on its own — it now lives in the logger struct), and every row
+ * was built in one buffer and copied into a second. The headroom below is
+ * deliberate, and meshcore_logger_stack_report() will say if it is ever wrong
+ * again instead of letting it crash. */
+#define MESHCORE_LOG_POLLER_STACK 3072u
+/* Below this much free stack, say so in the log rather than wait for the fault. */
+#define MESHCORE_LOG_STACK_WARN 512u
 
 /* meshlog.py's defaults, so a Flipper session and a phone session sample at the
  * same rate and their rows line up on a common time axis. */
@@ -87,6 +98,10 @@ struct MeshCoreLogger {
     /* Touched by both the poller (arming) and the session worker (confirming),
      * so the single-slot handoff between them is taken under this. */
     FuriMutex* ping_mutex;
+    /* Here rather than on the poller's stack, where it belongs to nobody and
+     * costs 3664 bytes -- a thread stack that size would be larger than the
+     * app's own. Only the poller touches it, one refresh at a time. */
+    MeshCoreContacts contacts;
     volatile uint32_t ping_ok;
     volatile uint32_t ping_sent;
 
@@ -98,7 +113,7 @@ struct MeshCoreLogger {
     volatile int8_t last_rssi;
 };
 
-static void meshcore_logger_emit(MeshCoreLogger* logger, MeshCoreLogFile target, const char* text);
+static void meshcore_logger_emit(MeshCoreLogger* logger, MeshCoreLogFile target, MeshCoreLogLine* line);
 static uint32_t meshcore_logger_ticks_to_ms(uint32_t ticks);
 
 /* ---- small formatting helpers ---- */
@@ -204,24 +219,32 @@ static int32_t meshcore_logger_writer(void* context) {
     return 0;
 }
 
-/* Append the node tags and hand the row to the writer. Every row in every file
- * ends the same way, so this is the only place that knows about them. */
-static void meshcore_logger_emit(MeshCoreLogger* logger, MeshCoreLogFile target, const char* text) {
-    MeshCoreLogLine line;
+/* Append the node tags to a row the caller has already built, and hand it to
+ * the writer. Every row in every file ends the same way, so this is the only
+ * place that knows about them.
+ *
+ * The caller owns the buffer and it is appended to in place. Taking a string
+ * and copying it into a second MeshCoreLogLine here would put two 644-byte
+ * buffers in one stack frame, which is most of a thread stack — and the poller
+ * thread died of exactly that. */
+static void meshcore_logger_emit(MeshCoreLogger* logger, MeshCoreLogFile target, MeshCoreLogLine* line) {
     char name[24];
-
     meshcore_logger_sanitise(logger->node.name, name, sizeof(name));
-    line.target = target;
-    snprintf(
-        line.text,
-        sizeof(line.text),
-        "%s,%s,%s,%s",
-        text,
-        name,
-        meshcore_logger_role_name(logger->node.role),
-        meshcore_logger_hw_name(logger->node.hw));
 
-    if(furi_message_queue_put(logger->queue, &line, 0) != FuriStatusOk) {
+    size_t used = strlen(line->text);
+    if(used < sizeof(line->text)) {
+        snprintf(
+            line->text + used,
+            sizeof(line->text) - used,
+            ",%s,%s,%s",
+            name,
+            meshcore_logger_role_name(logger->node.role),
+            meshcore_logger_hw_name(logger->node.hw));
+    }
+
+    line->target = target;
+
+    if(furi_message_queue_put(logger->queue, line, 0) != FuriStatusOk) {
         /* Counted rather than blocked on: losing a row beats overrunning the
          * UART and corrupting the ones that follow. */
         logger->dropped++;
@@ -254,6 +277,9 @@ static void meshcore_logger_on_event(
     char ts[32];
     char lat[16];
     char lon[16];
+    /* One row buffer for the whole function, reused by whichever branch runs.
+     * This thread's stack is 2 KB and the buffer is 644 bytes of it. */
+    MeshCoreLogLine line;
 
     meshcore_logger_timestamp(ts, sizeof(ts));
     meshcore_logger_position(logger, lat, sizeof(lat), lon, sizeof(lon));
@@ -277,9 +303,9 @@ static void meshcore_logger_on_event(
 
         /* ts,snr,rssi,lat,lon,acc,raw — acc is always empty, the companion
          * protocol carries no position accuracy. */
-        char row[MESHCORE_LOG_LINE_MAX];
-        snprintf(row, sizeof(row), "%s,%s,%d,%s,%s,,%s", ts, snr, (int)rx.rssi, lat, lon, raw);
-        meshcore_logger_emit(logger, MeshCoreLogFileRx, row);
+        snprintf(
+            line.text, sizeof(line.text), "%s,%s,%d,%s,%s,,%s", ts, snr, (int)rx.rssi, lat, lon, raw);
+        meshcore_logger_emit(logger, MeshCoreLogFileRx, &line);
         return;
     }
 
@@ -289,7 +315,6 @@ static void meshcore_logger_on_event(
     if(event->code == MC_PUSH_NEW_ADVERT || event->code == MC_PUSH_ADVERT) {
         char info[32];
         char raw[24];
-        char row[MESHCORE_LOG_LINE_MAX];
 
         if(event->code == MC_PUSH_NEW_ADVERT) {
             meshcore_logger_sanitise(event->u.contact.adv_name, info, sizeof(info));
@@ -300,8 +325,9 @@ static void meshcore_logger_on_event(
             meshcore_event_key_prefix(event->u.pubkey32, 6, raw, sizeof(raw));
         }
 
-        meshcore_event_format(MeshCoreEventAdvert, ts, info, raw, lat, lon, row, sizeof(row));
-        meshcore_logger_emit(logger, MeshCoreLogFileEvents, row);
+        meshcore_event_format(
+            MeshCoreEventAdvert, ts, info, raw, lat, lon, line.text, sizeof(line.text));
+        meshcore_logger_emit(logger, MeshCoreLogFileEvents, &line);
         return;
     }
 
@@ -322,12 +348,19 @@ static void meshcore_logger_on_event(
         furi_mutex_release(logger->ping_mutex);
 
         if(matched) {
-            char row[MESHCORE_LOG_LINE_MAX];
             char target[MESHCORE_PING_NAME_LEN];
             meshcore_logger_sanitise(logger->ping.targets[index].name, target, sizeof(target));
             meshcore_ping_format(
-                ts, target, seq, true, meshcore_logger_ticks_to_ms(rtt), lat, lon, row, sizeof(row));
-            meshcore_logger_emit(logger, MeshCoreLogFilePing, row);
+                ts,
+                target,
+                seq,
+                true,
+                meshcore_logger_ticks_to_ms(rtt),
+                lat,
+                lon,
+                line.text,
+                sizeof(line.text));
+            meshcore_logger_emit(logger, MeshCoreLogFilePing, &line);
             logger->ping_ok++;
         }
         return;
@@ -339,7 +372,6 @@ static void meshcore_logger_on_event(
     if(event->code == MC_RESP_CONTACT_MSG_RECV || event->code == MC_RESP_CONTACT_MSG_RECV_V3 ||
        event->code == MC_RESP_CHANNEL_MSG_RECV || event->code == MC_RESP_CHANNEL_MSG_RECV_V3) {
         char info[64];
-        char row[MESHCORE_LOG_LINE_MAX];
 
         /* Contact and channel messages land in different union members; a
          * channel message's text already carries "Name: body". */
@@ -348,8 +380,9 @@ static void meshcore_logger_on_event(
         meshcore_logger_sanitise(
             channel ? event->u.channel_msg.text : event->u.contact_msg.text, info, sizeof(info));
 
-        meshcore_event_format(MeshCoreEventMessage, ts, info, "", lat, lon, row, sizeof(row));
-        meshcore_logger_emit(logger, MeshCoreLogFileEvents, row);
+        meshcore_event_format(
+            MeshCoreEventMessage, ts, info, "", lat, lon, line.text, sizeof(line.text));
+        meshcore_logger_emit(logger, MeshCoreLogFileEvents, &line);
         return;
     }
 }
@@ -437,12 +470,12 @@ static void meshcore_logger_sample_telemetry(MeshCoreLogger* logger) {
     char ts[32];
     char lat[16];
     char lon[16];
-    char row[MESHCORE_LOG_LINE_MAX];
+    MeshCoreLogLine line;
 
     meshcore_logger_timestamp(ts, sizeof(ts));
     meshcore_logger_position(logger, lat, sizeof(lat), lon, sizeof(lon));
-    meshcore_telemetry_format(&telemetry, ts, lat, lon, row, sizeof(row));
-    meshcore_logger_emit(logger, MeshCoreLogFileTelemetry, row);
+    meshcore_telemetry_format(&telemetry, ts, lat, lon, line.text, sizeof(line.text));
+    meshcore_logger_emit(logger, MeshCoreLogFileTelemetry, &line);
 }
 
 /* Ping needs public keys, and those only exist once the contact list has been
@@ -451,29 +484,29 @@ static void meshcore_logger_sample_telemetry(MeshCoreLogger* logger) {
 static void meshcore_logger_refresh_targets(MeshCoreLogger* logger) {
     uint8_t payload[MC_MAX_PAYLOAD];
     mc_event_t event;
-    MeshCoreContacts contacts;
+    MeshCoreContacts* contacts = &logger->contacts;
 
     size_t len = mc_cmd_get_contacts(payload, sizeof(payload), 0);
     if(len == 0) return;
 
-    meshcore_contacts_reset(&contacts);
+    meshcore_contacts_reset(contacts);
     if(!meshcore_session_request_stream(
            logger->node.session,
            payload,
            len,
            MC_RESP_END_OF_CONTACTS,
            meshcore_contacts_collect,
-           &contacts,
+           contacts,
            &event,
            MESHCORE_LINK_TIMEOUT_MS)) {
         return;
     }
 
-    meshcore_contacts_sort_by_last_seen(&contacts);
+    meshcore_contacts_sort_by_last_seen(contacts);
 
     furi_mutex_acquire(logger->ping_mutex, FuriWaitForever);
-    for(size_t i = 0; i < contacts.count; i++) {
-        const MeshCoreContact* contact = &contacts.items[i];
+    for(size_t i = 0; i < contacts->count; i++) {
+        const MeshCoreContact* contact = &contacts->items[i];
         if(contact->name[0] == '\0') continue;
         /* add() refuses duplicates and a full table, so this converges on the
          * first few most recently heard and then stops changing. */
@@ -512,8 +545,8 @@ static void meshcore_logger_ping_once(MeshCoreLogger* logger) {
     char ts[32];
     char lat[16];
     char lon[16];
-    char row[MESHCORE_LOG_LINE_MAX];
     char safe[MESHCORE_PING_NAME_LEN];
+    MeshCoreLogLine line;
 
     meshcore_logger_timestamp(ts, sizeof(ts));
     meshcore_logger_position(logger, lat, sizeof(lat), lon, sizeof(lon));
@@ -522,8 +555,8 @@ static void meshcore_logger_ping_once(MeshCoreLogger* logger) {
     /* Not in the contact list yet: recorded as a miss rather than skipped,
      * because "could not be reached" is the measurement. */
     if(!known) {
-        meshcore_ping_format(ts, safe, seq, false, 0, lat, lon, row, sizeof(row));
-        meshcore_logger_emit(logger, MeshCoreLogFilePing, row);
+        meshcore_ping_format(ts, safe, seq, false, 0, lat, lon, line.text, sizeof(line.text));
+        meshcore_logger_emit(logger, MeshCoreLogFilePing, &line);
         return;
     }
 
@@ -538,8 +571,8 @@ static void meshcore_logger_ping_once(MeshCoreLogger* logger) {
            logger->node.session, payload, len, MC_RESP_SENT, &event, MESHCORE_LINK_TIMEOUT_MS)) {
         /* The node would not even take it — no ack is coming, so close the
          * measurement now instead of waiting out the timeout. */
-        meshcore_ping_format(ts, safe, seq, false, 0, lat, lon, row, sizeof(row));
-        meshcore_logger_emit(logger, MeshCoreLogFilePing, row);
+        meshcore_ping_format(ts, safe, seq, false, 0, lat, lon, line.text, sizeof(line.text));
+        meshcore_logger_emit(logger, MeshCoreLogFilePing, &line);
         return;
     }
 
@@ -566,14 +599,25 @@ static void meshcore_logger_ping_expire(MeshCoreLogger* logger) {
     char ts[32];
     char lat[16];
     char lon[16];
-    char row[MESHCORE_LOG_LINE_MAX];
     char safe[MESHCORE_PING_NAME_LEN];
+    MeshCoreLogLine line;
 
     meshcore_logger_timestamp(ts, sizeof(ts));
     meshcore_logger_position(logger, lat, sizeof(lat), lon, sizeof(lon));
     meshcore_logger_sanitise(logger->ping.targets[index].name, safe, sizeof(safe));
-    meshcore_ping_format(ts, safe, seq, false, 0, lat, lon, row, sizeof(row));
-    meshcore_logger_emit(logger, MeshCoreLogFilePing, row);
+    meshcore_ping_format(ts, safe, seq, false, 0, lat, lon, line.text, sizeof(line.text));
+    meshcore_logger_emit(logger, MeshCoreLogFilePing, &line);
+}
+
+/* A thread that overflows its stack does not report anything — it faults, and
+ * the app disappears. Checking the low-water mark where the deepest calls have
+ * already happened turns that into a line in the log. */
+static void meshcore_logger_stack_report(MeshCoreLogger* logger) {
+    uint32_t free_bytes = furi_thread_get_stack_space(furi_thread_get_current_id());
+    if(free_bytes < MESHCORE_LOG_STACK_WARN) {
+        meshcore_log_printf(
+            logger->log, "logger: poller stack low, %lu free", (unsigned long)free_bytes);
+    }
 }
 
 static int32_t meshcore_logger_poller(void* context) {
@@ -601,6 +645,8 @@ static int32_t meshcore_logger_poller(void* context) {
         if((int32_t)(now - next_stats) >= 0) {
             next_stats = now + furi_ms_to_ticks(MESHCORE_LOG_STATS_INTERVAL_MS);
             meshcore_logger_sample_telemetry(logger);
+            /* Right after the deepest call this thread makes. */
+            meshcore_logger_stack_report(logger);
             if(logger->stop) break;
             now = furi_get_tick();
         }
@@ -655,6 +701,7 @@ MeshCoreLogger* meshcore_logger_alloc(MeshCoreLog* log) {
     logger->error = NULL;
     meshcore_ping_init(&logger->ping);
     logger->ping_mutex = furi_mutex_alloc(FuriMutexTypeNormal);
+    meshcore_contacts_reset(&logger->contacts);
     logger->ping_ok = 0;
     logger->ping_sent = 0;
     logger->rx_count = 0;
@@ -909,7 +956,7 @@ void meshcore_logger_mark(MeshCoreLogger* logger) {
     char lat[16];
     char lon[16];
     char info[16];
-    char row[MESHCORE_LOG_LINE_MAX];
+    MeshCoreLogLine line;
 
     uint32_t number = ++logger->marks;
 
@@ -917,8 +964,8 @@ void meshcore_logger_mark(MeshCoreLogger* logger) {
     meshcore_logger_position(logger, lat, sizeof(lat), lon, sizeof(lon));
     snprintf(info, sizeof(info), "%lu", (unsigned long)number);
 
-    meshcore_event_format(MeshCoreEventMark, ts, info, "", lat, lon, row, sizeof(row));
-    meshcore_logger_emit(logger, MeshCoreLogFileEvents, row);
+    meshcore_event_format(MeshCoreEventMark, ts, info, "", lat, lon, line.text, sizeof(line.text));
+    meshcore_logger_emit(logger, MeshCoreLogFileEvents, &line);
 }
 
 uint32_t meshcore_logger_marks(MeshCoreLogger* logger) {

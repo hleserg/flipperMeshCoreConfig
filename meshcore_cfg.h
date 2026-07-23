@@ -109,6 +109,13 @@ typedef struct {
     volatile uint32_t push_count;
     volatile uint8_t last_push_code;
 
+    /* Scene named by the launch argument, opened once the dispatcher is
+     * running rather than before it. Entering a scene that starts a worker
+     * before view_dispatcher_run() means that worker posts into a queue nobody
+     * is serving yet, which the logger scene reliably crashes on.
+     * MeshCoreSceneNum means "no argument". */
+    MeshCoreSceneId launch_scene;
+
     /* Worker thread owned by whichever scene is currently running one. */
     FuriThread* worker;
     volatile bool worker_stop;
