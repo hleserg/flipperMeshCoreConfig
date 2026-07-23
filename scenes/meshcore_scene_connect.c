@@ -18,7 +18,7 @@ static void meshcore_connect_copy_self_info(MeshCoreNodeInfo* node, const mc_sel
     node->tx_power = info->tx_power;
     node->max_tx_power = info->max_tx_power;
     node->freq_khz = info->radio_freq;
-    node->bw_khz = info->radio_bw;
+    node->bw_hz = info->radio_bw;
     node->sf = info->radio_sf;
     node->cr = info->radio_cr;
     snprintf(node->name, sizeof(node->name), "%s", info->name);
@@ -120,7 +120,7 @@ static void meshcore_scene_connect_show(MeshCoreApp* app, bool done) {
             "fw %.20s (v%d)\n"
             "name: %.48s\n"
             "freq: %lu.%03lu MHz\n"
-            "bw %lu kHz  sf %u  cr %u\n"
+            "bw %lu kHz  sf %u  cr %u\n" /* bw arrives in Hz */
             "tx %u dBm (max %u)",
             n->model,
             n->fw_ver,
@@ -128,7 +128,7 @@ static void meshcore_scene_connect_show(MeshCoreApp* app, bool done) {
             n->name,
             (unsigned long)(n->freq_khz / 1000u),
             (unsigned long)(n->freq_khz % 1000u),
-            (unsigned long)n->bw_khz,
+            (unsigned long)(n->bw_hz / 1000u),
             (unsigned)n->sf,
             (unsigned)n->cr,
             (unsigned)n->tx_power,

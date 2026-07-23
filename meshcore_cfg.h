@@ -61,7 +61,10 @@ typedef struct {
     /* SELF_INFO */
     char name[MC_MAX_TEXT];
     uint32_t freq_khz; /* radio_freq, kHz — 869525 == 869.525 MHz */
-    uint32_t bw_khz;
+    /* radio_bw is in Hz, not kHz: the reference client encodes set_radio's
+     * bandwidth as bw_kHz * 1000, so 250 kHz goes over the wire as 250000.
+     * The two radio fields genuinely use different scales. */
+    uint32_t bw_hz;
     uint8_t sf;
     uint8_t cr;
     uint8_t tx_power; /* dBm */
