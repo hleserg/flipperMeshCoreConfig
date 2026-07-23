@@ -147,17 +147,30 @@ void meshcore_session_stop(MeshCoreSession* session) {
     if(!session->running) return;
 
     session->stop = true;
+    /* Cleared here, before the join, so a requester on another thread bails at
+     * its early running-check instead of arming a fresh request while we are
+     * tearing down. One already past that check (parked in the wait below) is
+     * handled by the flag set. */
+    session->running = false;
+
     furi_thread_join(session->worker);
     furi_thread_free(session->worker);
     session->worker = NULL;
 
-    /* Take request_lock before closing so a requester on another thread (the
-     * mailbox) cannot be mid-send on the link as it goes away — it re-checks
-     * running under this same lock. The worker is already joined and never held
-     * this lock, so acquiring it here cannot deadlock. */
+    /* Wake any requester parked waiting for a reply the worker — now joined —
+     * will never deliver. Without this it would sit out the full link timeout
+     * (~1.2s) holding request_lock, and the handoff below would wait on it that
+     * whole time. The woken requester finds got==false and returns false. A set
+     * with no waiter is harmless: the next exchange clears the flag before
+     * arming. */
+    furi_event_flag_set(session->flags, MESHCORE_SESSION_REPLY_FLAG);
+
+    /* Take request_lock before closing so a requester that was already in
+     * flight (past its checks, holding the lock) cannot be mid-send on the link
+     * as it goes away. The worker is already joined and never held this lock,
+     * so acquiring it here cannot deadlock. */
     furi_mutex_acquire(session->request_lock, FuriWaitForever);
     meshcore_link_close(&session->link);
-    session->running = false;
     furi_mutex_release(session->request_lock);
 }
 

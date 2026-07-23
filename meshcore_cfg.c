@@ -127,10 +127,19 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     furi_assert(app);
 
     /* Scenes join their own workers on exit, so nothing should be running by
-     * the time we get here. Freeing the session stops its worker and releases
-     * the USART. */
-    /* Mailbox first: its worker calls into the session, so it must be gone
-     * before the session is. */
+     * the time we get here — except the two app-lifetime workers, which have a
+     * mutual dependency: the mailbox worker calls into the session, and the
+     * session worker's push callback calls into the mailbox
+     * (meshcore_cfg_push_callback -> meshcore_mailbox_notify). Freeing the
+     * mailbox while the session worker is still pumping lets a MSG_WAITING push
+     * fire the callback on freed memory.
+     *
+     * So stop the SESSION worker first (no more push callbacks) while the
+     * session object stays alive, so the mailbox worker's in-flight calls just
+     * no-op against a stopped session; then free the mailbox; then the rest.
+     * Reachable since the messenger auto-connects — before that the session was
+     * only running at exit if the user had pressed Connect. */
+    meshcore_session_stop(app->session);
     meshcore_mailbox_free(app->mailbox);
     meshcore_logger_free(app->logger);
     meshcore_session_free(app->session);
