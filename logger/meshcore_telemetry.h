@@ -45,7 +45,10 @@ typedef struct {
 } MeshCoreTelemetry;
 
 /** ts,batt_pct,voltage,noise_floor,rx_total,tx_total,recv_errors,lat,lon,acc,
- *  raw_bat,raw_radio,raw_pkts — the node tags are appended by the caller.
+ *  raw_bat,raw_radio,raw_pkts,raw_core — the node tags are appended by the
+ *  caller. raw_core (uptime, queue depth, CORE error count) is a Flipper-only
+ *  trailing column: meshlog.py never collected the CORE block, so keeping it
+ *  after the shared columns leaves their order and position untouched.
  *
  *  A field the node did not report is written empty rather than as zero: on a
  *  discharge curve a missing sample and a real zero mean opposite things.
@@ -61,4 +64,4 @@ size_t meshcore_telemetry_format(
 
 #define MESHCORE_TELEMETRY_HEADER                                            \
     "ts,batt_pct,voltage,noise_floor,rx_total,tx_total,recv_errors,lat,lon," \
-    "acc,raw_bat,raw_radio,raw_pkts,node,role,hw"
+    "acc,raw_bat,raw_radio,raw_pkts,raw_core,node,role,hw"

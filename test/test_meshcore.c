@@ -1226,7 +1226,7 @@ static void test_telemetry_full(void) {
     /* The tags the logger appends are not part of this function's output, so
      * compare against the header minus its three trailing columns. */
     check_row_matches_header(row, "ts,batt_pct,voltage,noise_floor,rx_total,tx_total,"
-                                  "recv_errors,lat,lon,acc,raw_bat,raw_radio,raw_pkts",
+                                  "recv_errors,lat,lon,acc,raw_bat,raw_radio,raw_pkts,raw_core",
                              "full row");
 
     CHECK(strstr(row, ",3947,") != NULL, "batt_pct carries millivolts, as meshlog.py did");
@@ -1236,6 +1236,9 @@ static void test_telemetry_full(void) {
     CHECK(strstr(row, "mv=3947") != NULL, "raw_bat");
     CHECK(strstr(row, "nf=-107;rssi=-92;snr_q4=26;tx_air=11;rx_air=22") != NULL, "raw_radio");
     CHECK(strstr(row, "recv=500;sent=120;ftx=60;dtx=60;frx=250;drx=250") != NULL, "raw_pkts");
+    /* raw_core: collected before, now actually written. up=uptime, q=queue,
+     * cerr=CORE error count (both zero here from the memset). */
+    CHECK(strstr(row, "up=12345;q=0;cerr=0") != NULL, "raw_core carries what was silently dropped");
 }
 
 static void test_telemetry_missing(void) {
@@ -1248,13 +1251,13 @@ static void test_telemetry_missing(void) {
     meshcore_telemetry_format(&t, "2026-07-23T18:00:00", "", "", row, sizeof(row));
 
     check_row_matches_header(row, "ts,batt_pct,voltage,noise_floor,rx_total,tx_total,"
-                                  "recv_errors,lat,lon,acc,raw_bat,raw_radio,raw_pkts",
+                                  "recv_errors,lat,lon,acc,raw_bat,raw_radio,raw_pkts,raw_core",
                              "empty row");
 
     /* On a discharge curve a missing sample and a real zero mean opposite
      * things, so nothing may be invented. */
     CHECK(strstr(row, ",0,") == NULL, "no field was filled in with a zero");
-    CHECK_EQ_STR(row, "2026-07-23T18:00:00,,,,,,,,,,,,", "everything else blank");
+    CHECK_EQ_STR(row, "2026-07-23T18:00:00,,,,,,,,,,,,,", "everything else blank");
 }
 
 static void test_telemetry_old_firmware(void) {
@@ -1271,8 +1274,10 @@ static void test_telemetry_old_firmware(void) {
     char row[512];
     meshcore_telemetry_format(&t, "T", "", "", row, sizeof(row));
 
-    /* An older node must not be made to look like it reported zero errors. */
-    CHECK_EQ_STR(row, "T,,,,7,2,,,,,,,recv=7;sent=2;ftx=0;dtx=0;frx=0;drx=0", "errors left empty");
+    /* An older node must not be made to look like it reported zero errors.
+     * raw_core is empty here — have_core is false, so no trailing CORE data. */
+    CHECK_EQ_STR(
+        row, "T,,,,7,2,,,,,,,recv=7;sent=2;ftx=0;dtx=0;frx=0;drx=0,", "errors left empty");
 }
 
 /* ---- ping.csv ---- */

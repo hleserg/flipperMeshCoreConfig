@@ -36,6 +36,23 @@ static size_t meshcore_telemetry_raw_radio(const MeshCoreTelemetry* t, char* out
         (unsigned long)t->rx_air_secs);
 }
 
+/* uptime, queue depth and the CORE error counter. The comment above promised
+ * these were preserved somewhere; before this they were collected once a minute
+ * and thrown away, so the column that keeps that promise now exists. */
+static size_t meshcore_telemetry_raw_core(const MeshCoreTelemetry* t, char* out, size_t cap) {
+    if(!t->have_core) {
+        out[0] = '\0';
+        return 0;
+    }
+    return (size_t)snprintf(
+        out,
+        cap,
+        "up=%lu;q=%u;cerr=%u",
+        (unsigned long)t->uptime_secs,
+        (unsigned)t->queue_len,
+        (unsigned)t->core_errors);
+}
+
 static size_t meshcore_telemetry_raw_pkts(const MeshCoreTelemetry* t, char* out, size_t cap) {
     if(!t->have_packets) {
         out[0] = '\0';
@@ -69,6 +86,7 @@ size_t meshcore_telemetry_format(
     char raw_bat[32];
     char raw_radio[72];
     char raw_pkts[96];
+    char raw_core[40];
     char batt[8] = "";
     char voltage[12] = "";
     char noise[8] = "";
@@ -79,6 +97,7 @@ size_t meshcore_telemetry_format(
     meshcore_telemetry_raw_bat(t, raw_bat, sizeof(raw_bat));
     meshcore_telemetry_raw_radio(t, raw_radio, sizeof(raw_radio));
     meshcore_telemetry_raw_pkts(t, raw_pkts, sizeof(raw_pkts));
+    meshcore_telemetry_raw_core(t, raw_core, sizeof(raw_core));
 
     if(t->have_battery) {
         /* meshlog.py put the reference client's "level" in batt_pct, and that
@@ -103,10 +122,13 @@ size_t meshcore_telemetry_format(
         }
     }
 
+    /* raw_core is last, after the meshlog.py columns, so their order and
+     * position are untouched — it sits alongside the node/role/hw tags as a
+     * Flipper-only trailing extension. */
     int written = snprintf(
         out,
         cap,
-        "%s,%s,%s,%s,%s,%s,%s,%s,%s,,%s,%s,%s",
+        "%s,%s,%s,%s,%s,%s,%s,%s,%s,,%s,%s,%s,%s",
         ts,
         batt,
         voltage,
@@ -118,7 +140,8 @@ size_t meshcore_telemetry_format(
         lon,
         raw_bat,
         raw_radio,
-        raw_pkts);
+        raw_pkts,
+        raw_core);
 
     return (written < 0) ? 0 : (size_t)written;
 }

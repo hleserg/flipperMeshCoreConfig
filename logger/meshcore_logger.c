@@ -89,7 +89,15 @@ struct MeshCoreLogger {
      * round trip. Separate from the writer because it blocks on the link, and
      * separate from the session worker because it blocks at all. */
     FuriThread* poller;
+    /* Two stop flags, not one. `stop` releases the producers (poller and, by
+     * proxy, the session); `writer_stop` releases the consumer. They are
+     * distinct so the writer keeps draining until BOTH producers have been
+     * joined -- otherwise the writer, keyed off the same flag, exits within one
+     * ~250ms poll while the poller is still finishing a blocking request, and
+     * every row emitted during teardown is queued to a thread that has already
+     * returned. That silently broke the "clean stop loses nothing" contract. */
     volatile bool stop;
+    volatile bool writer_stop;
 
     bool running;
     const char* error;
@@ -202,7 +210,9 @@ static int32_t meshcore_logger_writer(void* context) {
     MeshCoreLogger* logger = context;
     MeshCoreLogLine line;
 
-    while(!logger->stop) {
+    /* writer_stop, not stop: the writer must outlive both producers so the rows
+     * they emit while shutting down still get written. See the flag comment. */
+    while(!logger->writer_stop) {
         if(furi_message_queue_get(logger->queue, &line, furi_ms_to_ticks(250)) != FuriStatusOk) {
             continue;
         }
@@ -246,8 +256,12 @@ static void meshcore_logger_emit(MeshCoreLogger* logger, MeshCoreLogFile target,
 
     if(furi_message_queue_put(logger->queue, line, 0) != FuriStatusOk) {
         /* Counted rather than blocked on: losing a row beats overrunning the
-         * UART and corrupting the ones that follow. */
-        logger->dropped++;
+         * UART and corrupting the ones that follow. emit() runs on three
+         * threads (poller, session worker, GUI mark), so the increment is
+         * atomic — a plain ++ would lose drops to a lost-update race, and this
+         * counter's whole job is to be trusted when it is non-zero. Relaxed is
+         * enough: readers only ever display it. */
+        __atomic_add_fetch(&logger->dropped, 1, __ATOMIC_RELAXED);
     }
 }
 
@@ -347,9 +361,16 @@ static void meshcore_logger_on_event(
          * nothing. See meshcore_ping_parse_ack. */
         if(!meshcore_ping_parse_ack(payload, len, &ack_code)) return;
 
+        /* Snapshot the fields the unmatched-ack diagnostic prints while the
+         * lock is held; the poller mutates them under the same lock. */
+        bool was_in_flight;
+        uint32_t was_expecting;
+
         furi_mutex_acquire(logger->ping_mutex, FuriWaitForever);
         index = logger->ping.flight_index;
         seq = logger->ping.flight_seq;
+        was_in_flight = logger->ping.in_flight;
+        was_expecting = logger->ping.expected_ack;
         matched = meshcore_ping_confirm(&logger->ping, ack_code, furi_get_tick(), &rtt);
         furi_mutex_release(logger->ping_mutex);
 
@@ -377,8 +398,8 @@ static void meshcore_logger_on_event(
                 logger->log,
                 "ack %08lx unmatched (pending=%d want=%08lx)",
                 (unsigned long)ack_code,
-                (int)logger->ping.in_flight,
-                (unsigned long)logger->ping.expected_ack);
+                (int)was_in_flight,
+                (unsigned long)was_expecting);
         }
         return;
     }
@@ -714,6 +735,7 @@ MeshCoreLogger* meshcore_logger_alloc(MeshCoreLog* log) {
     logger->writer = NULL;
     logger->poller = NULL;
     logger->stop = false;
+    logger->writer_stop = false;
     logger->running = false;
     logger->error = NULL;
     meshcore_ping_init(&logger->ping);
@@ -877,6 +899,7 @@ bool meshcore_logger_start(MeshCoreLogger* logger) {
     }
 
     logger->stop = false;
+    logger->writer_stop = false;
     logger->writer = furi_thread_alloc_ex(
         "MeshCoreLogWriter", MESHCORE_LOG_WRITER_STACK, meshcore_logger_writer, logger);
     furi_thread_start(logger->writer);
@@ -912,12 +935,17 @@ void meshcore_logger_stop(MeshCoreLogger* logger) {
     }
 
     /* Session next: it feeds the queue, so it has to stop producing before the
-     * writer stops consuming. */
+     * writer stops consuming. Its worker delivers any buffered frame to
+     * on_event -> emit as it joins, so the writer must still be running here. */
     if(logger->node.session) {
         meshcore_session_free(logger->node.session);
         logger->node.session = NULL;
     }
 
+    /* Only now, with both producers stopped and everything they emitted already
+     * in the queue, tell the writer to finish. Its post-loop drain then catches
+     * every teardown row. */
+    logger->writer_stop = true;
     furi_thread_join(logger->writer);
     furi_thread_free(logger->writer);
     logger->writer = NULL;

@@ -52,6 +52,16 @@ static void meshcore_preset_store_read_one(
     }
 
     char* text = malloc((size_t)size + 1);
+    if(text == NULL) {
+        /* Low RAM with a preset file present is a real state on this device:
+         * the UART buffer, contact table and CSV buffers are all live. Report
+         * it as a failed entry rather than dereferencing NULL. */
+        storage_file_close(file);
+        storage_file_free(file);
+        snprintf(entry->error, sizeof(entry->error), "out of memory");
+        return;
+    }
+
     uint16_t got = storage_file_read(file, text, (uint16_t)size);
     text[got] = '\0';
     storage_file_close(file);
@@ -60,6 +70,10 @@ static void meshcore_preset_store_read_one(
     const char* why = NULL;
     if(!meshcore_preset_from_json(text, &entry->preset, &why)) {
         snprintf(entry->error, sizeof(entry->error), "%.39s", why ? why : "bad JSON");
+        /* from_json memsets the preset before parsing, which wipes the
+         * filename fallback set above; restore it so a broken file is still
+         * named in the Profiles list rather than shown blank. */
+        snprintf(entry->preset.name, sizeof(entry->preset.name), "%.23s", name);
     } else if(!meshcore_preset_validate(&entry->preset, &why)) {
         snprintf(entry->error, sizeof(entry->error), "%.39s", why ? why : "out of range");
     }
@@ -154,7 +168,10 @@ bool meshcore_preset_store_save(Storage* storage, const MeshCorePreset* preset, 
         "{\n"
         "  \"name\": \"%s\",\n"
         "  \"freq_mhz\": %lu.%03lu,\n"
-        "  \"bw_khz\": %lu.%01lu,\n"
+        /* Three decimals, matching the Hz resolution the value is stored at.
+         * One digit (100 Hz) silently rounded quarter-step bandwidths like
+         * 31.25 kHz down to 31.2 on a save->load round-trip. */
+        "  \"bw_khz\": %lu.%03lu,\n"
         "  \"sf\": %u,\n"
         "  \"cr\": %u,\n"
         "  \"path_hash_bytes\": %u",
@@ -162,7 +179,7 @@ bool meshcore_preset_store_save(Storage* storage, const MeshCorePreset* preset, 
         (unsigned long)(preset->freq_khz / 1000u),
         (unsigned long)(preset->freq_khz % 1000u),
         (unsigned long)(preset->bw_hz / 1000u),
-        (unsigned long)((preset->bw_hz % 1000u) / 100u),
+        (unsigned long)(preset->bw_hz % 1000u),
         (unsigned)preset->sf,
         (unsigned)preset->cr,
         (unsigned)preset->path_hash_bytes);

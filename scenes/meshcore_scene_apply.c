@@ -77,13 +77,14 @@ static int32_t meshcore_scene_apply_worker(void* context) {
 
     /* Now the part that makes the ticks mean something. */
     size_t len = mc_cmd_app_start(payload, sizeof(payload), MESHCORE_LINK_APP_NAME);
-    if(len != 0 && meshcore_session_request(
-                       app->session,
-                       payload,
-                       len,
-                       MC_RESP_SELF_INFO,
-                       &event,
-                       MESHCORE_LINK_TIMEOUT_MS)) {
+    bool self_ok = len != 0 && meshcore_session_request(
+                                   app->session,
+                                   payload,
+                                   len,
+                                   MC_RESP_SELF_INFO,
+                                   &event,
+                                   MESHCORE_LINK_TIMEOUT_MS);
+    if(self_ok) {
         if(app->apply_result[MeshCoreApplyRadio] == MeshCoreApplyResultOk &&
            !meshcore_apply_verify_radio(preset, &event.u.self_info)) {
             app->apply_result[MeshCoreApplyRadio] = MeshCoreApplyResultMismatch;
@@ -92,16 +93,28 @@ static int32_t meshcore_scene_apply_worker(void* context) {
            !meshcore_apply_verify_name(preset, &event.u.self_info)) {
             app->apply_result[MeshCoreApplyName] = MeshCoreApplyResultMismatch;
         }
+    } else {
+        /* The re-read never came back. The node accepted the command but we
+         * cannot see the result, which is exactly what [~] means — leaving an
+         * [ok] here would be the false tick the whole verify pass exists to
+         * avoid. */
+        if(app->apply_result[MeshCoreApplyRadio] == MeshCoreApplyResultOk) {
+            app->apply_result[MeshCoreApplyRadio] = MeshCoreApplyResultUnverifiable;
+        }
+        if(app->apply_result[MeshCoreApplyName] == MeshCoreApplyResultOk) {
+            app->apply_result[MeshCoreApplyName] = MeshCoreApplyResultUnverifiable;
+        }
     }
 
     len = mc_cmd_device_query(payload, sizeof(payload), MESHCORE_LINK_PROTO_VER);
-    if(len != 0 && meshcore_session_request(
-                       app->session,
-                       payload,
-                       len,
-                       MC_RESP_DEVICE_INFO,
-                       &event,
-                       MESHCORE_LINK_TIMEOUT_MS)) {
+    bool dev_ok = len != 0 && meshcore_session_request(
+                                  app->session,
+                                  payload,
+                                  len,
+                                  MC_RESP_DEVICE_INFO,
+                                  &event,
+                                  MESHCORE_LINK_TIMEOUT_MS);
+    if(dev_ok) {
         if(app->apply_result[MeshCoreApplyPathHash] == MeshCoreApplyResultOk) {
             bool checkable = false;
             bool matched =
@@ -114,7 +127,20 @@ static int32_t meshcore_scene_apply_worker(void* context) {
                 app->apply_result[MeshCoreApplyPathHash] = MeshCoreApplyResultMismatch;
             }
         }
+    } else if(app->apply_result[MeshCoreApplyPathHash] == MeshCoreApplyResultOk) {
+        app->apply_result[MeshCoreApplyPathHash] = MeshCoreApplyResultUnverifiable;
     }
+
+    /* One line to the log so the outcome survives in last_run.log — the screen
+     * needs the device in hand, and this is the only record of what a given
+     * Apply actually did to the node. */
+    meshcore_log_printf(
+        app->log,
+        "apply %.20s: radio %s name %s hash %s",
+        preset->name,
+        meshcore_scene_apply_mark(app->apply_result[MeshCoreApplyRadio]),
+        meshcore_scene_apply_mark(app->apply_result[MeshCoreApplyName]),
+        meshcore_scene_apply_mark(app->apply_result[MeshCoreApplyPathHash]));
 
     view_dispatcher_send_custom_event(app->view_dispatcher, MESHCORE_APPLY_EVENT_DONE);
     return 0;
