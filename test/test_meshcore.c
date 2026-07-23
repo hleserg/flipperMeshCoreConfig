@@ -14,6 +14,7 @@
 #include <furi.h>
 
 #include "../messenger/meshcore_contacts.h"
+#include "../messenger/meshcore_messages.h"
 #include "../protocol/meshcore_link.h"
 #include "../protocol/meshcore_route.h"
 #include "fakes.h"
@@ -459,46 +460,215 @@ static void test_link_request_timeout(void) {
 /* ======================================================================== *
  *  Event routing (the session's policy, without the session's threads)
  * ======================================================================== */
+static void test_code_set(void) {
+    section("routing: reply code sets");
+
+    MeshCoreCodeSet one = meshcore_code_set_one(MC_RESP_OK);
+    CHECK_EQ_U32(one.count, 1, "single-code set size");
+    CHECK(meshcore_code_set_has(&one, MC_RESP_OK), "contains its code");
+    CHECK(!meshcore_code_set_has(&one, MC_RESP_ERR), "and nothing else");
+
+    const uint8_t sync[] = {
+        MC_RESP_CONTACT_MSG_RECV,
+        MC_RESP_CONTACT_MSG_RECV_V3,
+        MC_RESP_CHANNEL_MSG_RECV,
+        MC_RESP_CHANNEL_MSG_RECV_V3,
+        MC_RESP_NO_MORE_MESSAGES,
+    };
+    MeshCoreCodeSet set = meshcore_code_set(sync, 5);
+    CHECK_EQ_U32(set.count, 5, "SYNC_NEXT_MESSAGE reply set size");
+    CHECK(set.count <= MESHCORE_CODE_SET_MAX, "and it fits the fixed set");
+    for(size_t i = 0; i < 5; i++) {
+        CHECK(meshcore_code_set_has(&set, sync[i]), "every SYNC reply code is accepted");
+    }
+    CHECK(!meshcore_code_set_has(&set, MC_RESP_SELF_INFO), "unrelated codes are not");
+
+    /* Overflowing must clamp, not scribble past the array. */
+    const uint8_t many[] = {1, 2, 3, 4, 5, 6, 7, 8, 9};
+    MeshCoreCodeSet clamped = meshcore_code_set(many, sizeof(many));
+    CHECK_EQ_U32(clamped.count, MESHCORE_CODE_SET_MAX, "oversized input is clamped");
+}
+
 static void test_route(void) {
     section("routing: replies, streams and unsolicited pushes");
+
+    MeshCoreCodeSet ok = meshcore_code_set_one(MC_RESP_OK);
+    MeshCoreCodeSet self_info = meshcore_code_set_one(MC_RESP_SELF_INFO);
+    MeshCoreCodeSet err = meshcore_code_set_one(MC_RESP_ERR);
+    MeshCoreCodeSet end = meshcore_code_set_one(MC_RESP_END_OF_CONTACTS);
 
     /* Idle: everything is unsolicited. This is the case the messenger depends
      * on — a MSG_WAITING push arriving while the user is idle must reach the
      * application rather than being dropped. */
-    CHECK(meshcore_route_event(false, MC_RESP_OK, false, MC_PUSH_MSG_WAITING) ==
-              MeshCoreRouteEvent,
+    CHECK(meshcore_route_event(false, &ok, false, MC_PUSH_MSG_WAITING) == MeshCoreRouteEvent,
           "idle push goes to the application");
-    CHECK(meshcore_route_event(false, MC_RESP_OK, false, MC_RESP_OK) == MeshCoreRouteEvent,
+    CHECK(meshcore_route_event(false, &ok, false, MC_RESP_OK) == MeshCoreRouteEvent,
           "even a reply-looking code is unsolicited when nothing is pending");
 
     /* In flight. */
-    CHECK(meshcore_route_event(true, MC_RESP_SELF_INFO, false, MC_RESP_SELF_INFO) ==
-              MeshCoreRouteReply,
+    CHECK(meshcore_route_event(true, &self_info, false, MC_RESP_SELF_INFO) == MeshCoreRouteReply,
           "the awaited code completes the request");
-    CHECK(meshcore_route_event(true, MC_RESP_SELF_INFO, false, MC_RESP_ERR) == MeshCoreRouteReply,
+    CHECK(meshcore_route_event(true, &self_info, false, MC_RESP_ERR) == MeshCoreRouteReply,
           "a node error ends the request");
-    CHECK(meshcore_route_event(true, MC_RESP_ERR, false, MC_RESP_ERR) == MeshCoreRouteReply,
+    CHECK(meshcore_route_event(true, &err, false, MC_RESP_ERR) == MeshCoreRouteReply,
           "a request that awaits ERR still completes on ERR");
 
     /* A push during a plain request must not be mistaken for the answer. */
-    CHECK(meshcore_route_event(true, MC_RESP_SELF_INFO, false, MC_PUSH_ADVERT) ==
-              MeshCoreRouteEvent,
+    CHECK(meshcore_route_event(true, &self_info, false, MC_PUSH_ADVERT) == MeshCoreRouteEvent,
           "a push mid-request stays unsolicited");
+
+    /* Multi-code replies: SYNC_NEXT_MESSAGE can come back five different ways
+     * and any of them ends the request. */
+    const uint8_t sync[] = {
+        MC_RESP_CONTACT_MSG_RECV,
+        MC_RESP_CONTACT_MSG_RECV_V3,
+        MC_RESP_CHANNEL_MSG_RECV,
+        MC_RESP_CHANNEL_MSG_RECV_V3,
+        MC_RESP_NO_MORE_MESSAGES,
+    };
+    MeshCoreCodeSet sync_set = meshcore_code_set(sync, 5);
+    for(size_t i = 0; i < 5; i++) {
+        CHECK(meshcore_route_event(true, &sync_set, false, sync[i]) == MeshCoreRouteReply,
+              "each SYNC reply completes the drain step");
+    }
+    CHECK(meshcore_route_event(true, &sync_set, false, MC_PUSH_ADVERT) == MeshCoreRouteEvent,
+          "an advert during a drain is still unsolicited");
 
     /* During a stream, everything non-terminating is offered to the collector,
      * which declines what is not its own — so pushes still get through. */
-    CHECK(meshcore_route_event(true, MC_RESP_END_OF_CONTACTS, true, MC_RESP_CONTACT) ==
-              MeshCoreRouteStream,
+    CHECK(meshcore_route_event(true, &end, true, MC_RESP_CONTACT) == MeshCoreRouteStream,
           "contact records go to the collector");
-    CHECK(meshcore_route_event(true, MC_RESP_END_OF_CONTACTS, true, MC_RESP_CONTACTS_START) ==
-              MeshCoreRouteStream,
+    CHECK(meshcore_route_event(true, &end, true, MC_RESP_CONTACTS_START) == MeshCoreRouteStream,
           "the count header goes to the collector");
-    CHECK(meshcore_route_event(true, MC_RESP_END_OF_CONTACTS, true, MC_RESP_END_OF_CONTACTS) ==
-              MeshCoreRouteReply,
+    CHECK(meshcore_route_event(true, &end, true, MC_RESP_END_OF_CONTACTS) == MeshCoreRouteReply,
           "the terminator completes the stream");
-    CHECK(meshcore_route_event(true, MC_RESP_END_OF_CONTACTS, true, MC_PUSH_MSG_WAITING) ==
-              MeshCoreRouteStream,
+    CHECK(meshcore_route_event(true, &end, true, MC_PUSH_MSG_WAITING) == MeshCoreRouteStream,
           "a push mid-stream is offered to the collector first");
+}
+
+/* ======================================================================== *
+ *  Message store
+ * ======================================================================== */
+static void test_messages_from_event(void) {
+    section("messages: turning replies into stored messages");
+
+    mc_event_t ev;
+    MeshCoreMessage msg;
+
+    /* Contact message, plain. */
+    memset(&ev, 0, sizeof(ev));
+    ev.code = MC_RESP_CONTACT_MSG_RECV;
+    for(int i = 0; i < 6; i++) ev.u.contact_msg.pubkey_prefix[i] = (uint8_t)(0x10 + i);
+    ev.u.contact_msg.sender_ts = 1750000000;
+    ev.u.contact_msg.snr_q4 = MC_SNR_NONE;
+    ev.u.contact_msg.path_len = MC_PATH_DIRECT;
+    snprintf(ev.u.contact_msg.text, sizeof(ev.u.contact_msg.text), "ping from the hill");
+
+    CHECK(meshcore_message_from_event(&ev, &msg), "a contact message converts");
+    CHECK(msg.direction == MeshCoreMessageIncoming, "incoming");
+    CHECK(!msg.is_channel, "not a channel message");
+    CHECK_EQ_U32(msg.timestamp, 1750000000, "timestamp carried over");
+    CHECK_EQ_STR(msg.text, "ping from the hill", "text carried over");
+    CHECK_EQ_U32(msg.peer[0], 0x10, "peer prefix first byte");
+    CHECK_EQ_U32(msg.peer[5], 0x15, "peer prefix last byte");
+
+    /* The V3 variant differs only by carrying SNR; it must convert the same. */
+    memset(&ev, 0, sizeof(ev));
+    ev.code = MC_RESP_CONTACT_MSG_RECV_V3;
+    ev.u.contact_msg.snr_q4 = 24; /* 6.0 dB */
+    snprintf(ev.u.contact_msg.text, sizeof(ev.u.contact_msg.text), "v3");
+    CHECK(meshcore_message_from_event(&ev, &msg), "the V3 variant converts too");
+    CHECK_EQ_U32((uint8_t)msg.snr_q4, 24, "SNR preserved");
+
+    /* Channel message. */
+    memset(&ev, 0, sizeof(ev));
+    ev.code = MC_RESP_CHANNEL_MSG_RECV;
+    ev.u.channel_msg.channel_idx = 2;
+    snprintf(ev.u.channel_msg.text, sizeof(ev.u.channel_msg.text), "alpha: net check");
+    CHECK(meshcore_message_from_event(&ev, &msg), "a channel message converts");
+    CHECK(msg.is_channel, "flagged as a channel message");
+    CHECK_EQ_U32(msg.channel_idx, 2, "channel index");
+    CHECK_EQ_STR(msg.text, "alpha: net check", "channel text keeps its sender prefix");
+
+    /* Anything else is not a message. */
+    memset(&ev, 0, sizeof(ev));
+    ev.code = MC_RESP_NO_MORE_MESSAGES;
+    CHECK(!meshcore_message_from_event(&ev, &msg), "NO_MORE_MESSAGES is not a message");
+    ev.code = MC_RESP_OK;
+    CHECK(!meshcore_message_from_event(&ev, &msg), "neither is OK");
+}
+
+static void add_message(MeshCoreMessages* store, const uint8_t* peer, const char* text, uint32_t ts) {
+    MeshCoreMessage msg;
+    memset(&msg, 0, sizeof(msg));
+    memcpy(msg.peer, peer, MESHCORE_PEER_LEN);
+    msg.direction = MeshCoreMessageIncoming;
+    msg.timestamp = ts;
+    snprintf(msg.text, sizeof(msg.text), "%s", text);
+    meshcore_messages_add(store, &msg);
+}
+
+static void test_messages_ring(void) {
+    section("messages: the ring drops the oldest");
+
+    MeshCoreMessages store;
+    meshcore_messages_reset(&store);
+
+    const uint8_t peer[MESHCORE_PEER_LEN] = {1, 2, 3, 4, 5, 6};
+
+    for(size_t i = 0; i < MESHCORE_MESSAGES_MAX; i++) {
+        char text[16];
+        snprintf(text, sizeof(text), "m%u", (unsigned)i);
+        add_message(&store, peer, text, 1000 + (uint32_t)i);
+    }
+    CHECK_EQ_U32(store.count, MESHCORE_MESSAGES_MAX, "ring is full");
+    CHECK_EQ_U32(store.total, MESHCORE_MESSAGES_MAX, "total counts everything added");
+    CHECK_EQ_STR(meshcore_messages_at(&store, 0)->text, "m0", "oldest is first");
+
+    /* Three more push the three oldest out. */
+    add_message(&store, peer, "x0", 9000);
+    add_message(&store, peer, "x1", 9001);
+    add_message(&store, peer, "x2", 9002);
+
+    CHECK_EQ_U32(store.count, MESHCORE_MESSAGES_MAX, "still full, never grows");
+    CHECK_EQ_U32(store.total, MESHCORE_MESSAGES_MAX + 3, "total keeps climbing");
+    CHECK_EQ_STR(meshcore_messages_at(&store, 0)->text, "m3", "the three oldest were dropped");
+    CHECK_EQ_STR(
+        meshcore_messages_at(&store, MESHCORE_MESSAGES_MAX - 1)->text, "x2", "newest is last");
+    CHECK(meshcore_messages_at(&store, MESHCORE_MESSAGES_MAX) == NULL, "past the end is NULL");
+}
+
+static void test_messages_peer_filter(void) {
+    section("messages: conversations are keyed by peer prefix");
+
+    MeshCoreMessages store;
+    meshcore_messages_reset(&store);
+
+    const uint8_t alpha[MESHCORE_PEER_LEN] = {0xAA, 1, 2, 3, 4, 5};
+    const uint8_t bravo[MESHCORE_PEER_LEN] = {0xBB, 1, 2, 3, 4, 5};
+
+    add_message(&store, alpha, "from alpha", 1);
+    add_message(&store, bravo, "from bravo", 2);
+    add_message(&store, alpha, "alpha again", 3);
+
+    /* A contact carries a full 32-byte key; only the first 6 are comparable,
+     * because that is all an incoming message identifies the sender by. */
+    uint8_t alpha_full[32];
+    memset(alpha_full, 0x77, sizeof(alpha_full));
+    memcpy(alpha_full, alpha, MESHCORE_PEER_LEN);
+
+    CHECK_EQ_U32(meshcore_messages_count_for(&store, alpha_full), 2, "two from alpha");
+    CHECK(meshcore_message_is_from(meshcore_messages_at(&store, 0), alpha_full), "first matches");
+    CHECK(!meshcore_message_is_from(meshcore_messages_at(&store, 1), alpha_full),
+          "bravo's does not");
+
+    /* Channel traffic belongs to no contact conversation. */
+    MeshCoreMessage channel;
+    memset(&channel, 0, sizeof(channel));
+    channel.is_channel = true;
+    memcpy(channel.peer, alpha, MESHCORE_PEER_LEN);
+    CHECK(!meshcore_message_is_from(&channel, alpha_full),
+          "a channel message is not part of a direct chat");
 }
 
 /* ======================================================================== *
@@ -658,7 +828,12 @@ int main(void) {
     test_link_request_error();
     test_link_request_timeout();
 
+    test_code_set();
     test_route();
+
+    test_messages_from_event();
+    test_messages_ring();
+    test_messages_peer_filter();
 
     test_contacts_collect();
     test_contacts_overflow();

@@ -63,6 +63,19 @@ bool meshcore_session_request(
     mc_event_t* event,
     uint32_t timeout_ms);
 
+/** Same, for a command whose reply may be one of several codes.
+ *
+ * SYNC_NEXT_MESSAGE is the reason this exists: the node answers it with a
+ * contact message, a channel message, either V3 variant, or "no more
+ * messages", and the caller cannot know which in advance. */
+bool meshcore_session_request_any(
+    MeshCoreSession* session,
+    const uint8_t* payload,
+    size_t len,
+    const MeshCoreCodeSet* want,
+    mc_event_t* event,
+    uint32_t timeout_ms);
+
 /** Same, for a reply that arrives as several frames — every frame before the
  * terminating `want_code` is offered to `collector`. */
 bool meshcore_session_request_stream(

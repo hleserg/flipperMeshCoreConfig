@@ -23,7 +23,7 @@ struct MeshCoreSession {
 
     bool pending;
     bool got;
-    uint8_t want_code;
+    MeshCoreCodeSet want;
     MeshCoreSessionStreamCallback collector;
     void* collector_context;
     mc_event_t result;
@@ -45,7 +45,7 @@ static int32_t meshcore_session_worker(void* context) {
 
         MeshCoreRoute route = meshcore_route_event(
             session->pending && !session->got,
-            session->want_code,
+            &session->want,
             session->collector != NULL,
             event.code);
 
@@ -98,7 +98,7 @@ MeshCoreSession* meshcore_session_alloc(MeshCoreLog* log) {
 
     session->pending = false;
     session->got = false;
-    session->want_code = MESHCORE_LINK_NO_EVENT;
+    session->want = meshcore_code_set_one(MESHCORE_LINK_NO_EVENT);
     session->collector = NULL;
     session->collector_context = NULL;
     memset(&session->result, 0, sizeof(session->result));
@@ -166,7 +166,7 @@ static bool meshcore_session_exchange(
     MeshCoreSession* session,
     const uint8_t* payload,
     size_t len,
-    uint8_t want_code,
+    const MeshCoreCodeSet* want,
     MeshCoreSessionStreamCallback collector,
     void* collector_context,
     mc_event_t* event,
@@ -188,7 +188,7 @@ static bool meshcore_session_exchange(
     furi_mutex_acquire(session->slot_lock, FuriWaitForever);
     session->pending = true;
     session->got = false;
-    session->want_code = want_code;
+    session->want = *want;
     session->collector = collector;
     session->collector_context = collector_context;
     furi_mutex_release(session->slot_lock);
@@ -205,7 +205,9 @@ static bool meshcore_session_exchange(
     furi_mutex_acquire(session->slot_lock, FuriWaitForever);
     if(session->got) {
         if(event) *event = session->result;
-        answered = (session->result.code == want_code);
+        /* Claimed, but an ERR that we were not waiting for is still a failure
+         * from the caller's point of view — it just gets to see the code. */
+        answered = meshcore_code_set_has(want, session->result.code);
     }
     session->pending = false;
     session->got = false;
@@ -224,8 +226,18 @@ bool meshcore_session_request(
     uint8_t want_code,
     mc_event_t* event,
     uint32_t timeout_ms) {
-    return meshcore_session_exchange(
-        session, payload, len, want_code, NULL, NULL, event, timeout_ms);
+    MeshCoreCodeSet want = meshcore_code_set_one(want_code);
+    return meshcore_session_exchange(session, payload, len, &want, NULL, NULL, event, timeout_ms);
+}
+
+bool meshcore_session_request_any(
+    MeshCoreSession* session,
+    const uint8_t* payload,
+    size_t len,
+    const MeshCoreCodeSet* want,
+    mc_event_t* event,
+    uint32_t timeout_ms) {
+    return meshcore_session_exchange(session, payload, len, want, NULL, NULL, event, timeout_ms);
 }
 
 bool meshcore_session_request_stream(
@@ -238,8 +250,9 @@ bool meshcore_session_request_stream(
     mc_event_t* event,
     uint32_t timeout_ms) {
     furi_assert(collector);
+    MeshCoreCodeSet want = meshcore_code_set_one(want_code);
     return meshcore_session_exchange(
-        session, payload, len, want_code, collector, collector_context, event, timeout_ms);
+        session, payload, len, &want, collector, collector_context, event, timeout_ms);
 }
 
 bool meshcore_session_send(MeshCoreSession* session, const uint8_t* payload, size_t len) {

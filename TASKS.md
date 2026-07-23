@@ -41,8 +41,10 @@ Radio lives on the external node; the Flipper is the client.
       *(architecture pulled forward deliberately — the old request/response
       model could not hear an unsolicited push, so stage 2 would have forced a
       rewrite)*
-- [ ] 2 — receive: handle the `MSG_WAITING` push, drain with
-      `SYNC_NEXT_MESSAGE`, show in `scene_chat`
+- [x] 2 — receive: `MSG_WAITING` wakes a mailbox worker that drains with
+      `SYNC_NEXT_MESSAGE`; messages land in a RAM ring and `scene_chat` renders
+      the conversation. Also drains on a 5 s timer so mail queued before we
+      connected is not stranded.
 - [ ] 3 — send: `scene_compose` on `TextInput` → `SEND_TXT_MSG`
 - [ ] 4 — history on SD (`/ext/apps_data/meshcore_cfg/messages/`) + incoming
       notifications (vibro + line)
@@ -75,3 +77,15 @@ To run in one batch once a node is on the bench:
       caveat in AGENTS.md) — decides if `scene_role` is an editor or read-only
 - [!] Confirm the Heltec V4 works on stock `heltec_v4_companion_radio_usb`
 - [!] Check that the log view's tick refresh does not fight manual scrolling
+
+## Known gaps
+
+- `scene_chat` right-aligns outgoing messages with `\er` but cannot invert
+  them: the text scroll element has no per-line colour. Real inversion needs a
+  custom view with its own draw callback — worth doing in stage 3, when there
+  are outgoing messages to look at.
+- `MC_PUSH_NEW_ADVERT` carries a full contact record and could refresh the
+  contact list live. Currently ignored; contacts only update on entering the
+  scene.
+- Delivery confirmation (`MC_PUSH_SEND_CONFIRMED`) is not tracked yet — needed
+  once stage 3 can send, to tell "sent" from "delivered".

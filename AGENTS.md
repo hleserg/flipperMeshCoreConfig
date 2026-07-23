@@ -111,12 +111,15 @@ protocol/
   meshcore_session.h/.c    long-lived worker owning the link (see below)
 messenger/
   meshcore_contacts.h/.c   contact list mirrored from the node, ages, collector
+  meshcore_messages.h/.c   RAM ring of recent messages, keyed by peer prefix
+  meshcore_mailbox.h/.c    worker that drains incoming mail from the node
 scenes/
   meshcore_scene_config.h  X-macro list — the single place scenes are registered
   meshcore_scene.h/.c      generated scene enum + handler tables
   meshcore_scene_menu.c    main menu
   meshcore_scene_connect.c handshake on a worker thread, shows model/fw/radio
   meshcore_scene_contacts.c messenger entry point: the node's peers + last seen
+  meshcore_scene_chat.c    one conversation, rebuilt when the store changes
   meshcore_scene_log.c     passthrough hex log, refreshed on the scene tick
 test/
   run.ps1                  compile + run the host tests
@@ -278,6 +281,12 @@ Three contexts, and mixing them is the main way to break this app:
   a reply for whoever is waiting, a frame for a streaming collector, or an
   unsolicited event handed to the app. The event callback and stream collector
   **run on this thread** — they must not block and must not touch a view.
+- **Mailbox worker** — `messenger/meshcore_mailbox.c`, also alive for the app's
+  lifetime. Sleeps on an event flag, woken by a `MSG_WAITING` push or by a 5 s
+  timer, then drains with `SYNC_NEXT_MESSAGE`. It has to be a separate thread:
+  the push lands on the session worker, which must not block, and draining
+  blocks on that same worker's replies. Waking it only sets a flag, so there is
+  no deadlock.
 - **Scene worker** — short-lived, one per scene that talks to the node.
   `meshcore_session_request()` and friends block, so they belong here. Report
   back with `view_dispatcher_send_custom_event()`, which is safe across

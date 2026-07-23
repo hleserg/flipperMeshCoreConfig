@@ -92,7 +92,9 @@ should work; only the two boards above are actively targeted.
   wiring or the node firmware is the thing being debugged
 - **Messenger → Contacts** ✅ — the peers your node knows, most recently heard
   first, with how long ago each was seen
-- **Messenger → Chat / Compose / Channels** — reading and writing messages
+- **Messenger → Chat** ✅ — the conversation with a contact; incoming mail is
+  pulled off the node as it arrives and appears without leaving the screen
+- **Messenger → Compose / Channels** — writing messages, public channels
 - **Radio** — frequency, bandwidth, spreading factor, coding rate, TX power
 - **Identity** — node name as it appears in adverts
 - **Role** — companion / repeater / room server *(see the caveat below)*

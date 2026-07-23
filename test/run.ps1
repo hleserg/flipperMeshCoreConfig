@@ -29,13 +29,15 @@ Compile "$root/protocol/meshcore_c/meshcore_companion.c" "$out/meshcore_companio
 Compile "$root/protocol/meshcore_link.c" "$out/meshcore_link.o" $strict
 Compile "$root/protocol/meshcore_route.c" "$out/meshcore_route.o" $strict
 Compile "$root/messenger/meshcore_contacts.c" "$out/meshcore_contacts.o" $strict
+Compile "$root/messenger/meshcore_messages.c" "$out/meshcore_messages.o" $strict
 Compile "$root/test/fakes.c" "$out/fakes.o" $strict
 Compile "$root/test/test_meshcore.c" "$out/test_meshcore.o" $strict
 
 $exe = Join-Path $out 'test_meshcore.exe'
 $linkArgs = $cc[1..($cc.Length - 1)] + @(
     "$out/meshcore_companion.o", "$out/meshcore_link.o", "$out/meshcore_route.o",
-    "$out/meshcore_contacts.o", "$out/fakes.o", "$out/test_meshcore.o", '-o', $exe)
+    "$out/meshcore_contacts.o", "$out/meshcore_messages.o",
+    "$out/fakes.o", "$out/test_meshcore.o", '-o', $exe)
 & $cc[0] @linkArgs
 if ($LASTEXITCODE -ne 0) { throw 'link failed' }
 

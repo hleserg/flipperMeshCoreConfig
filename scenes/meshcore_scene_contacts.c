@@ -9,6 +9,8 @@
 #include "../meshcore_cfg.h"
 
 #define MESHCORE_CONTACTS_EVENT_DONE 0x200u
+/* Picking contact i sends PICK + i, so the base sits clear of DONE. */
+#define MESHCORE_CONTACTS_EVENT_PICK 0x1000u
 #define MESHCORE_CONTACTS_WORKER_STACK 2048u
 
 /* A node with a full address book sends ~150 bytes per contact; at 115200 that
@@ -75,8 +77,8 @@ static int32_t meshcore_contacts_worker(void* context) {
 
 static void meshcore_scene_contacts_submenu_callback(void* context, uint32_t index) {
     MeshCoreApp* app = context;
-    /* Chat opens in stage 2; remember the pick so the list comes back to it. */
-    scene_manager_set_scene_state(app->scene_manager, MeshCoreSceneContacts, index);
+    view_dispatcher_send_custom_event(
+        app->view_dispatcher, MESHCORE_CONTACTS_EVENT_PICK + index);
 }
 
 static void meshcore_scene_contacts_show_error(MeshCoreApp* app) {
@@ -163,15 +165,35 @@ void meshcore_scene_contacts_on_enter(void* context) {
 bool meshcore_scene_contacts_on_event(void* context, SceneManagerEvent event) {
     MeshCoreApp* app = context;
 
-    if(event.type == SceneManagerEventTypeCustom && event.event == MESHCORE_CONTACTS_EVENT_DONE) {
-        if(app->worker_error) {
-            meshcore_scene_contacts_show_error(app);
-        } else if(app->contacts.count == 0) {
-            meshcore_scene_contacts_show_empty(app);
-        } else {
-            meshcore_scene_contacts_show_list(app);
+    if(event.type == SceneManagerEventTypeCustom) {
+        if(event.event == MESHCORE_CONTACTS_EVENT_DONE) {
+            if(app->worker_error) {
+                meshcore_scene_contacts_show_error(app);
+            } else if(app->contacts.count == 0) {
+                meshcore_scene_contacts_show_empty(app);
+            } else {
+                meshcore_scene_contacts_show_list(app);
+            }
+            return true;
         }
-        return true;
+
+        if(event.event >= MESHCORE_CONTACTS_EVENT_PICK) {
+            size_t index = event.event - MESHCORE_CONTACTS_EVENT_PICK;
+            if(index < app->contacts.count) {
+                const MeshCoreContact* contact = &app->contacts.items[index];
+                /* Copy the peer out of the list: a refresh may reorder or drop
+                 * entries while the chat is open, and the conversation is
+                 * keyed by the key, not by a row number. */
+                memcpy(app->chat_peer, contact->public_key, sizeof(app->chat_peer));
+                snprintf(
+                    app->chat_peer_name, sizeof(app->chat_peer_name), "%s", contact->name);
+
+                scene_manager_set_scene_state(
+                    app->scene_manager, MeshCoreSceneContacts, (uint32_t)index);
+                scene_manager_next_scene(app->scene_manager, MeshCoreSceneChat);
+            }
+            return true;
+        }
     }
 
     return false;

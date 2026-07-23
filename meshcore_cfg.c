@@ -27,6 +27,13 @@ static void meshcore_cfg_push_callback(const mc_event_t* event, void* context) {
     MeshCoreApp* app = context;
     app->push_count++;
     app->last_push_code = event->code;
+
+    /* "Drain me": the node has mail for us. Waking the mailbox only sets an
+     * event flag, which is all this callback may do — it runs on the session
+     * worker, and draining blocks on that same worker's replies. */
+    if(event->code == MC_PUSH_MSG_WAITING) {
+        meshcore_mailbox_notify(app->mailbox);
+    }
 }
 
 static MeshCoreApp* meshcore_cfg_app_alloc(void) {
@@ -61,13 +68,22 @@ static MeshCoreApp* meshcore_cfg_app_alloc(void) {
 
     app->log = meshcore_log_alloc();
     app->session = meshcore_session_alloc(app->log);
-    meshcore_session_set_event_callback(app->session, meshcore_cfg_push_callback, app);
     memset(&app->node, 0, sizeof(app->node));
 
     meshcore_contacts_reset(&app->contacts);
+    meshcore_messages_reset(&app->messages);
+    memset(app->chat_peer, 0, sizeof(app->chat_peer));
+    app->chat_peer_name[0] = '\0';
     app->node_time = 0;
     app->push_count = 0;
     app->last_push_code = 0;
+
+    /* The mailbox must exist before the push callback can wake it. Its worker
+     * runs for the app's lifetime and no-ops until the session is connected,
+     * so mail queued on the node is picked up as soon as we attach. */
+    app->mailbox = meshcore_mailbox_alloc(app->session, &app->messages);
+    meshcore_session_set_event_callback(app->session, meshcore_cfg_push_callback, app);
+    meshcore_mailbox_start(app->mailbox);
 
     app->worker = NULL;
     app->worker_stop = false;
@@ -88,6 +104,9 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     /* Scenes join their own workers on exit, so nothing should be running by
      * the time we get here. Freeing the session stops its worker and releases
      * the USART. */
+    /* Mailbox first: its worker calls into the session, so it must be gone
+     * before the session is. */
+    meshcore_mailbox_free(app->mailbox);
     meshcore_session_free(app->session);
     meshcore_log_free(app->log);
 

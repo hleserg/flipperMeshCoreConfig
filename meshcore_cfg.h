@@ -30,6 +30,8 @@
 
 #include "meshcore_log.h"
 #include "messenger/meshcore_contacts.h"
+#include "messenger/meshcore_mailbox.h"
+#include "messenger/meshcore_messages.h"
 #include "protocol/meshcore_session.h"
 #include "scenes/meshcore_scene.h"
 
@@ -84,6 +86,12 @@ typedef struct {
 
     /* Messenger */
     MeshCoreContacts contacts;
+    MeshCoreMessages messages;
+    MeshCoreMailbox* mailbox;
+    /* Which conversation scene_chat is showing. Held as the peer's key rather
+     * than a row number, because a contacts refresh can reorder the list. */
+    uint8_t chat_peer[32];
+    char chat_peer_name[MC_NAME_LEN + 1];
     /* The node's clock, from CURR_TIME. Contact ages are relative to this and
      * not to the Flipper's RTC, because that is the timebase last_advert is
      * expressed in. Zero means "not read yet". */
