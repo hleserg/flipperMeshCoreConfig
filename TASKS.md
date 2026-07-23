@@ -77,6 +77,30 @@ Interactions this created with earlier work, already handled:
   nothing. Undecoded frames are now delivered with their raw payload.
 - The session event callback carries the raw payload for the same reason.
 
+## Node emulator (`tools/node-emulator/`) — next up
+
+A Python fake companion node, so the whole app can be exercised before any
+board arrives. This is the highest-leverage item on the list: it converts most
+of "waiting for hardware" below into something testable today.
+
+- [ ] 1 — protocol core + TCP transport: framing and replies for self-info,
+      get_bat, stats radio/packets, get_contacts.
+      *Done when:* the pip `meshcore` client reads self-info and battery over TCP.
+- [ ] 2 — unsolicited events + ping: adverts, `rx_log` with drifting SNR,
+      `send_msg` → ACK with delay and configurable loss, incoming messages.
+      *Done when:* `meshlog.py --tcp 127.0.0.1:5000` fills rx_log/telemetry/ping.
+- [ ] 3 — serial transport, `--model`, `--scenario`; ESP32-S2 devboard as a
+      dumb USB↔UART bridge.
+      *Done when:* a real Flipper logs the emulator over the wire.
+- [ ] `HANDOFF.md` — plain-language, numbered, split into "already done" and
+      "your turn", ending in a symptom → cause → fix table.
+
+**Blocked on input:** `meshlog.py` has not been provided, and stage 2's gate is
+defined by it. It also decides the `ts` column format the Logger writes.
+
+The emulator must be byte-correct or it proves nothing — the format comes from
+`docs/companion_protocol.md` and the firmware sources, never from guesswork.
+
 ## Infrastructure
 
 - [x] Host test suite for the protocol layer (`test/`), Zig toolchain
@@ -115,7 +139,9 @@ To run in one batch once a node is on the bench:
 - [!] Whether the node accepts a runtime role change at all (see the Role
       caveat in AGENTS.md) — decides if `scene_role` is an editor or read-only
 - [!] Confirm the Heltec V4 works on stock `heltec_v4_companion_radio_usb`
-- [!] Check that the log view's tick refresh does not fight manual scrolling
+- [x] ~~Check that the log view's tick refresh fights manual scrolling~~ — it
+      did. Reported from the device and fixed: timed redraws reset scroll
+      position in both the Logger and the Serial log.
 - [!] Logger 1: a walk near the mesh fills `rx_log.csv` with SNR/RSSI rows
 - [!] Logger: confirm the timestamp format matches what `meshlog.py` wrote.
       Currently ISO-8601 without a zone (`2026-07-23T12:34:56`), chosen blind —
