@@ -27,13 +27,15 @@ function Compile($src, $obj, $extra) {
 # settings, so a clang-only warning there cannot block our tests.
 Compile "$root/protocol/meshcore_c/meshcore_companion.c" "$out/meshcore_companion.o" @()
 Compile "$root/protocol/meshcore_link.c" "$out/meshcore_link.o" $strict
+Compile "$root/protocol/meshcore_route.c" "$out/meshcore_route.o" $strict
+Compile "$root/messenger/meshcore_contacts.c" "$out/meshcore_contacts.o" $strict
 Compile "$root/test/fakes.c" "$out/fakes.o" $strict
 Compile "$root/test/test_meshcore.c" "$out/test_meshcore.o" $strict
 
 $exe = Join-Path $out 'test_meshcore.exe'
 $linkArgs = $cc[1..($cc.Length - 1)] + @(
-    "$out/meshcore_companion.o", "$out/meshcore_link.o",
-    "$out/fakes.o", "$out/test_meshcore.o", '-o', $exe)
+    "$out/meshcore_companion.o", "$out/meshcore_link.o", "$out/meshcore_route.o",
+    "$out/meshcore_contacts.o", "$out/fakes.o", "$out/test_meshcore.o", '-o', $exe)
 & $cc[0] @linkArgs
 if ($LASTEXITCODE -ne 0) { throw 'link failed' }
 

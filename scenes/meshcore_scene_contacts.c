@@ -1,0 +1,192 @@
+/*
+ * scene_contacts — the mesh as the node sees it: who is out there and how
+ * recently we heard from them.
+ *
+ * GET_CONTACTS is answered as a stream (CONTACTS_START, then one CONTACT per
+ * peer, then END_OF_CONTACTS), so this uses the session's streaming request
+ * and collects into MeshCoreContacts on the worker thread.
+ */
+#include "../meshcore_cfg.h"
+
+#define MESHCORE_CONTACTS_EVENT_DONE 0x200u
+#define MESHCORE_CONTACTS_WORKER_STACK 2048u
+
+/* A node with a full address book sends ~150 bytes per contact; at 115200 that
+ * is a couple of seconds for a few hundred peers. Generous, but the user is
+ * looking at a spinner, and scene_connect has already established whether the
+ * node answers at all. */
+#define MESHCORE_CONTACTS_TIMEOUT_MS 6000u
+
+static const char* meshcore_contacts_run(MeshCoreApp* app) {
+    uint8_t payload[MC_MAX_PAYLOAD];
+    mc_event_t ev;
+    size_t len;
+
+    if(!meshcore_session_start(app->session)) {
+        return "Cannot take the USART.\nAnother app is holding it.";
+    }
+
+    /* Ages are relative to the node's clock, not the Flipper's — last_advert
+     * is in the node's timebase. A node that will not tell us the time just
+     * means ages render as "-", which is better than showing wrong ones. */
+    len = mc_cmd_get_device_time(payload, sizeof(payload));
+    if(len != 0 &&
+       meshcore_session_request(
+           app->session, payload, len, MC_RESP_CURR_TIME, &ev, MESHCORE_LINK_TIMEOUT_MS)) {
+        app->node_time = ev.u.curr_time;
+    } else {
+        app->node_time = 0;
+    }
+
+    if(app->worker_stop) return "Cancelled.";
+
+    meshcore_contacts_reset(&app->contacts);
+
+    /* 0 = send everything, rather than a delta since some lastmod. */
+    len = mc_cmd_get_contacts(payload, sizeof(payload), 0);
+    if(len == 0) return "Internal error: GET_CONTACTS.";
+
+    if(!meshcore_session_request_stream(
+           app->session,
+           payload,
+           len,
+           MC_RESP_END_OF_CONTACTS,
+           meshcore_contacts_collect,
+           &app->contacts,
+           &ev,
+           MESHCORE_CONTACTS_TIMEOUT_MS)) {
+        if(ev.code == MC_RESP_ERR) return "Node refused GET_CONTACTS.";
+        /* Some contacts may have arrived before the stream stalled; showing
+         * them beats showing nothing. */
+        if(app->contacts.count > 0) return NULL;
+        return "No contact list from the node.";
+    }
+
+    meshcore_contacts_sort_by_last_seen(&app->contacts);
+    return NULL;
+}
+
+static int32_t meshcore_contacts_worker(void* context) {
+    MeshCoreApp* app = context;
+    app->worker_error = meshcore_contacts_run(app);
+    view_dispatcher_send_custom_event(app->view_dispatcher, MESHCORE_CONTACTS_EVENT_DONE);
+    return 0;
+}
+
+static void meshcore_scene_contacts_submenu_callback(void* context, uint32_t index) {
+    MeshCoreApp* app = context;
+    /* Chat opens in stage 2; remember the pick so the list comes back to it. */
+    scene_manager_set_scene_state(app->scene_manager, MeshCoreSceneContacts, index);
+}
+
+static void meshcore_scene_contacts_show_error(MeshCoreApp* app) {
+    char text[256];
+    widget_reset(app->widget);
+    snprintf(
+        text,
+        sizeof(text),
+        "\e#Contacts\n"
+        "%s\n\n"
+        "Run Connect first, and check\nthe node has peers.",
+        app->worker_error);
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, text);
+    view_dispatcher_switch_to_view(app->view_dispatcher, MeshCoreViewWidget);
+}
+
+static void meshcore_scene_contacts_show_list(MeshCoreApp* app) {
+    Submenu* submenu = app->submenu;
+    submenu_reset(submenu);
+
+    /* Roomy enough for the worst case the compiler can imagine: a node that
+     * claims a ten-digit contact count. */
+    char header[40];
+    if(app->contacts.reported > app->contacts.count) {
+        /* Say so rather than silently truncating. */
+        snprintf(
+            header,
+            sizeof(header),
+            "Contacts %u/%lu",
+            (unsigned)app->contacts.count,
+            (unsigned long)app->contacts.reported);
+    } else {
+        snprintf(header, sizeof(header), "Contacts (%u)", (unsigned)app->contacts.count);
+    }
+    submenu_set_header(submenu, header);
+
+    for(size_t i = 0; i < app->contacts.count; i++) {
+        const MeshCoreContact* contact = &app->contacts.items[i];
+
+        char age[MESHCORE_AGE_LEN];
+        meshcore_contacts_format_age(app->node_time, contact->last_advert, age, sizeof(age));
+
+        /* Submenu draws a single left-aligned label in a proportional font, so
+         * a real right-hand column is not on offer; a separator is honest. */
+        char label[48];
+        snprintf(label, sizeof(label), "%.28s  %s", contact->name, age);
+
+        submenu_add_item(
+            submenu, label, (uint32_t)i, meshcore_scene_contacts_submenu_callback, app);
+    }
+
+    submenu_set_selected_item(
+        submenu, scene_manager_get_scene_state(app->scene_manager, MeshCoreSceneContacts));
+    view_dispatcher_switch_to_view(app->view_dispatcher, MeshCoreViewSubmenu);
+}
+
+static void meshcore_scene_contacts_show_empty(MeshCoreApp* app) {
+    widget_reset(app->widget);
+    widget_add_text_scroll_element(
+        app->widget,
+        0,
+        0,
+        128,
+        64,
+        "\e#No contacts\n"
+        "The node knows no peers yet.\n\n"
+        "Contacts appear once other\nnodes advertise, or after\nSend advert.");
+    view_dispatcher_switch_to_view(app->view_dispatcher, MeshCoreViewWidget);
+}
+
+void meshcore_scene_contacts_on_enter(void* context) {
+    MeshCoreApp* app = context;
+
+    app->worker_stop = false;
+    app->worker_error = NULL;
+
+    view_dispatcher_switch_to_view(app->view_dispatcher, MeshCoreViewLoading);
+
+    app->worker = furi_thread_alloc_ex(
+        "MeshCoreContacts", MESHCORE_CONTACTS_WORKER_STACK, meshcore_contacts_worker, app);
+    furi_thread_start(app->worker);
+}
+
+bool meshcore_scene_contacts_on_event(void* context, SceneManagerEvent event) {
+    MeshCoreApp* app = context;
+
+    if(event.type == SceneManagerEventTypeCustom && event.event == MESHCORE_CONTACTS_EVENT_DONE) {
+        if(app->worker_error) {
+            meshcore_scene_contacts_show_error(app);
+        } else if(app->contacts.count == 0) {
+            meshcore_scene_contacts_show_empty(app);
+        } else {
+            meshcore_scene_contacts_show_list(app);
+        }
+        return true;
+    }
+
+    return false;
+}
+
+void meshcore_scene_contacts_on_exit(void* context) {
+    MeshCoreApp* app = context;
+
+    if(app->worker) {
+        app->worker_stop = true;
+        furi_thread_join(app->worker);
+        furi_thread_free(app->worker);
+        app->worker = NULL;
+    }
+
+    submenu_reset(app->submenu);
+    widget_reset(app->widget);
+}

@@ -4,13 +4,27 @@ Context-first brief for anyone (human or agent) picking this repo up.
 
 ## What this is
 
-A Flipper Zero application that configures a **MeshCore** node over the
-Flipper's **hardware UART**: radio parameters, node identity, role, applying
-profiles from the SD card, and triggering a self-advert.
+A Flipper Zero application that drives a **MeshCore** node over the Flipper's
+**hardware UART**, in two modes:
+
+- **Configurator** — read and change radio parameters, node identity and role,
+  apply profiles from the SD card, trigger a self-advert.
+- **Messenger** — use the node as a radio: contact list, chats, composing and
+  sending messages.
+
+**The radio is never on the Flipper.** The node does the meshing, holds the
+keys and owns the identity; this app is a client for it. Nothing cryptographic
+is duplicated on the Flipper — it reads and displays what the node reports.
 
 Brand: **Greyrock Labs**. License: MIT.
 
-Target nodes: **Heltec T114** (nRF52840) and **Heltec V4** (ESP32-S3).
+Target nodes: **Heltec T114** (nRF52840) and **Heltec V4** (ESP32-S3). Both
+modes need the same thing of the node: a *companion* firmware build with the
+serial interface on a hardware UART. See "Node firmware requirements" below —
+in particular the T114 caveat, which applies to the messenger exactly as it
+does to the configurator.
+
+`TASKS.md` tracks what is done, what is next and what is waiting on hardware.
 
 ## Stack
 
@@ -93,11 +107,16 @@ uart/
 protocol/
   meshcore_c/              vendored upstream library — do not patch, see VENDOR.md
   meshcore_link.h/.c       binds meshcore_c to the UART layer; blocking request/poll
+  meshcore_route.h/.c      pure policy: reply vs stream vs unsolicited event
+  meshcore_session.h/.c    long-lived worker owning the link (see below)
+messenger/
+  meshcore_contacts.h/.c   contact list mirrored from the node, ages, collector
 scenes/
   meshcore_scene_config.h  X-macro list — the single place scenes are registered
   meshcore_scene.h/.c      generated scene enum + handler tables
   meshcore_scene_menu.c    main menu
   meshcore_scene_connect.c handshake on a worker thread, shows model/fw/radio
+  meshcore_scene_contacts.c messenger entry point: the node's peers + last seen
   meshcore_scene_log.c     passthrough hex log, refreshed on the scene tick
 test/
   run.ps1                  compile + run the host tests
@@ -113,9 +132,13 @@ profiles/                  JSON profile loading from the SD card
 ```
 
 Adding a scene = one line in `scenes/meshcore_scene_config.h` +
-`scenes/meshcore_scene_<name>.c` with the three handlers. `sources` is left at
-the fbt default (`*.c*`, globbed recursively), so new files are picked up
-automatically.
+`scenes/meshcore_scene_<name>.c` with the three handlers.
+
+`application.fam` lists `sources` per directory rather than using the fbt
+default `*.c*`. That default is globbed **recursively from the app root**, which
+would compile `test/` into the firmware — host fakes and all, colliding with
+the real UART layer at link time. **A new source directory needs a line in
+`sources`,** or its files silently will not build.
 
 ## Wiring
 
@@ -184,6 +207,32 @@ Commands this app needs:
 Note `mc_cmd_set_radio_params` takes frequency in **kHz** (the header calls the
 argument `freq_hz_x1000`).
 
+Commands the messenger needs:
+
+| Purpose | Builder | Reply |
+| --- | --- | --- |
+| Contact list | `mc_cmd_get_contacts(since_lastmod)` | `CONTACTS_START` (count) → `CONTACT` × N → `END_OF_CONTACTS` |
+| Node clock | `mc_cmd_get_device_time` | `MC_RESP_CURR_TIME` |
+| Drain a message | `mc_cmd_sync_next_message` | `CONTACT_MSG_RECV(_V3)` / `CHANNEL_MSG_RECV(_V3)`, or `NO_MORE_MESSAGES` |
+| Send to a contact | `mc_cmd_send_txt_msg(...)` | `MC_RESP_SENT`, later `MC_PUSH_SEND_CONFIRMED` |
+| Send to a channel | `mc_cmd_send_channel_text(...)` | `MC_RESP_SENT` |
+| Channel config | `mc_cmd_get_channel(idx)` | `MC_RESP_CHANNEL_INFO` |
+
+Three things about the messenger side are easy to assume wrongly:
+
+1. **There is no subscription for incoming messages.** The node sends the
+   `MC_PUSH_MSG_WAITING` (0x83) push — literally "drain me" — and the client
+   then loops `SYNC_NEXT_MESSAGE` until it gets `NO_MORE_MESSAGES`. Handling
+   incoming mail is a pull loop triggered by a push, not a callback.
+2. **Delivery is two-step.** `SEND_TXT_MSG` is answered with `MC_RESP_SENT`,
+   carrying `expected_ack` and `suggested_timeout`; actual delivery arrives
+   later as `MC_PUSH_SEND_CONFIRMED` with a matching ack tag. "Sent" and
+   "delivered" are different states and the chat UI should show both.
+3. **Timestamps come from the node's clock.** `last_advert` and message
+   timestamps are in the node's timebase, which drifts from the Flipper RTC.
+   Read `MC_RESP_CURR_TIME` and compute ages against that — `scene_contacts`
+   already does.
+
 **Open question — role switching.** The companion protocol has no
 "set role" command: in MeshCore, companion / repeater / room server are
 separate firmware builds (see the `*_repeater`, `*_room_server`,
@@ -223,13 +272,25 @@ Three contexts, and mixing them is the main way to break this app:
 
 - **ISR** — `meshcore_uart_rx_isr` only. Drains the peripheral into a stream
   buffer and returns. Never allocate, never block, never touch a view.
-- **Worker thread** — everything in `protocol/` blocks, so every `mc_cmd_*` /
-  `meshcore_link_request` call belongs here. A worker must not call any GUI
-  function; it reports back with `view_dispatcher_send_custom_event()`, which
-  is safe to call from another thread. See `scene_connect` for the shape:
+- **Session worker** — one thread, `protocol/meshcore_session.c`, alive for as
+  long as the app is connected. It owns the link and is the only thing that
+  reads from it. Every frame is routed by `meshcore_route_event()` into either
+  a reply for whoever is waiting, a frame for a streaming collector, or an
+  unsolicited event handed to the app. The event callback and stream collector
+  **run on this thread** — they must not block and must not touch a view.
+- **Scene worker** — short-lived, one per scene that talks to the node.
+  `meshcore_session_request()` and friends block, so they belong here. Report
+  back with `view_dispatcher_send_custom_event()`, which is safe across
+  threads. See `scene_connect` and `scene_contacts` for the shape:
   `furi_thread_alloc_ex` in `on_enter`, join and free in `on_exit`.
 - **GUI thread** — scene handlers. Never call into `protocol/` from here; a
   silent node would freeze the UI for the request timeout.
+
+Why a long-lived session rather than a worker per request: the node pushes
+`MSG_WAITING` whenever a message arrives, at a moment of its choosing. With a
+worker that exists only for the duration of a request, nobody is listening in
+between and the push is lost. The configurator never noticed; the messenger
+would not work at all.
 
 `TextBox` stores the `const char*` it is given rather than copying it, and the
 GUI service redraws from that pointer on its own thread. So the string behind a

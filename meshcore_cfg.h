@@ -1,13 +1,21 @@
 /*
  * MeshCore Config — Flipper Zero FAP by Greyrock Labs.
  *
- * Application-wide state, shared by every scene.
+ * Two modes over one link to the node:
+ *   Configurator — read and change the node's radio settings and identity
+ *   Messenger    — use the node as a radio: contacts, chats, adverts
+ *
+ * The radio is never on the Flipper. The node does the meshing and holds the
+ * keys; this app is a UI for it, speaking the MeshCore companion protocol over
+ * the hardware UART.
  *
  * Layering (see AGENTS.md):
  *   uart/            furi_hal_serial wrapper — moves bytes, knows no protocol
- *   protocol/        vendored meshcore_c + its binding to the UART layer
+ *   protocol/        vendored meshcore_c, its UART binding, and the session
+ *                    worker that owns the link for as long as we are connected
+ *   messenger/       contact list and, later, message history
  *   scenes/          UI, one file per scene
- *   profiles/        *.json profiles from the SD card       (step 5)
+ *   profiles/        *.json profiles from the SD card       (configurator, later)
  */
 #pragma once
 
@@ -15,12 +23,14 @@
 #include <gui/gui.h>
 #include <gui/view_dispatcher.h>
 #include <gui/scene_manager.h>
+#include <gui/modules/loading.h>
 #include <gui/modules/submenu.h>
 #include <gui/modules/text_box.h>
 #include <gui/modules/widget.h>
 
 #include "meshcore_log.h"
-#include "protocol/meshcore_link.h"
+#include "messenger/meshcore_contacts.h"
+#include "protocol/meshcore_session.h"
 #include "scenes/meshcore_scene.h"
 
 /* How often scenes get a tick event (used by the log view to refresh). */
@@ -32,10 +42,11 @@ typedef enum {
     MeshCoreViewSubmenu,
     MeshCoreViewWidget,
     MeshCoreViewTextBox,
+    MeshCoreViewLoading,
 } MeshCoreViewId;
 
 /* What the node told us about itself. Filled by scene_connect from SELF_INFO
- * and DEVICE_INFO; the editors in later steps read and modify it. */
+ * and DEVICE_INFO; the configurator editors read and modify it. */
 typedef struct {
     bool valid;
 
@@ -64,11 +75,24 @@ typedef struct {
     Submenu* submenu;
     Widget* widget;
     TextBox* text_box;
+    Loading* loading;
 
     /* Transport + protocol */
     MeshCoreLog* log;
-    MeshCoreLink link;
+    MeshCoreSession* session;
     MeshCoreNodeInfo node;
+
+    /* Messenger */
+    MeshCoreContacts contacts;
+    /* The node's clock, from CURR_TIME. Contact ages are relative to this and
+     * not to the Flipper's RTC, because that is the timebase last_advert is
+     * expressed in. Zero means "not read yet". */
+    uint32_t node_time;
+
+    /* Written by the session worker thread when the node pushes something
+     * nobody asked for. Read by scenes; stage 2 turns this into real handling. */
+    volatile uint32_t push_count;
+    volatile uint8_t last_push_code;
 
     /* Worker thread owned by whichever scene is currently running one. */
     FuriThread* worker;

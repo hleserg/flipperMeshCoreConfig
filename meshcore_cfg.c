@@ -20,6 +20,15 @@ static void meshcore_cfg_tick_event_callback(void* context) {
     scene_manager_handle_tick_event(app->scene_manager);
 }
 
+/* Runs on the session worker thread whenever the node sends something nobody
+ * asked for. Must stay trivial: no blocking, no GUI. Stage 2 replaces this
+ * with real handling of MSG_WAITING. */
+static void meshcore_cfg_push_callback(const mc_event_t* event, void* context) {
+    MeshCoreApp* app = context;
+    app->push_count++;
+    app->last_push_code = event->code;
+}
+
 static MeshCoreApp* meshcore_cfg_app_alloc(void) {
     MeshCoreApp* app = malloc(sizeof(MeshCoreApp));
 
@@ -46,9 +55,19 @@ static MeshCoreApp* meshcore_cfg_app_alloc(void) {
     view_dispatcher_add_view(
         app->view_dispatcher, MeshCoreViewTextBox, text_box_get_view(app->text_box));
 
+    app->loading = loading_alloc();
+    view_dispatcher_add_view(
+        app->view_dispatcher, MeshCoreViewLoading, loading_get_view(app->loading));
+
     app->log = meshcore_log_alloc();
-    meshcore_link_init(&app->link);
+    app->session = meshcore_session_alloc(app->log);
+    meshcore_session_set_event_callback(app->session, meshcore_cfg_push_callback, app);
     memset(&app->node, 0, sizeof(app->node));
+
+    meshcore_contacts_reset(&app->contacts);
+    app->node_time = 0;
+    app->push_count = 0;
+    app->last_push_code = 0;
 
     app->worker = NULL;
     app->worker_stop = false;
@@ -67,17 +86,20 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     furi_assert(app);
 
     /* Scenes join their own workers on exit, so nothing should be running by
-     * the time we get here — but the USART may still be held. */
-    meshcore_link_close(&app->link);
+     * the time we get here. Freeing the session stops its worker and releases
+     * the USART. */
+    meshcore_session_free(app->session);
     meshcore_log_free(app->log);
 
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewSubmenu);
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewWidget);
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewTextBox);
+    view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewLoading);
 
     submenu_free(app->submenu);
     widget_free(app->widget);
     text_box_free(app->text_box);
+    loading_free(app->loading);
 
     furi_string_free(app->text_buf[0]);
     furi_string_free(app->text_buf[1]);

@@ -27,7 +27,8 @@ static void meshcore_connect_copy_self_info(MeshCoreNodeInfo* node, const mc_sel
 /* Turn a failed request into something worth reading on a 128x64 screen. */
 static const char* meshcore_connect_diagnose(MeshCoreApp* app, const mc_event_t* ev) {
     if(ev->code == MC_RESP_ERR) return "Node refused the handshake.";
-    if(meshcore_link_rx_errors(&app->link) > 0) return "Noise on the line.\nWrong baud, or TX/RX swapped?";
+    if(meshcore_session_rx_errors(app->session) > 0)
+        return "Noise on the line.\nWrong baud, or TX/RX swapped?";
     return "No reply from the node.\nIs it on a hardware UART?";
 }
 
@@ -40,21 +41,16 @@ static const char* meshcore_connect_run(MeshCoreApp* app) {
 
     node->valid = false;
 
-    if(!meshcore_link_is_open(&app->link)) {
-        if(!meshcore_link_open(&app->link, app->log)) {
-            return "Cannot take the USART.\nAnother app is holding it.";
-        }
+    if(!meshcore_session_start(app->session)) {
+        return "Cannot take the USART.\nAnother app is holding it.";
     }
-
-    /* Whatever the node said before we showed up is not a reply to us. */
-    meshcore_link_flush(&app->link);
 
     /* APP_START identifies us and comes back with the node's current radio
      * settings, which is also the config the editors will work on. */
     len = mc_cmd_app_start(payload, sizeof(payload), MESHCORE_LINK_APP_NAME);
     if(len == 0) return "Internal error: APP_START.";
-    if(!meshcore_link_request(
-           &app->link, payload, len, MC_RESP_SELF_INFO, &ev, MESHCORE_LINK_TIMEOUT_MS)) {
+    if(!meshcore_session_request(
+           app->session, payload, len, MC_RESP_SELF_INFO, &ev, MESHCORE_LINK_TIMEOUT_MS)) {
         return meshcore_connect_diagnose(app, &ev);
     }
     meshcore_connect_copy_self_info(node, &ev.u.self_info);
@@ -64,8 +60,8 @@ static const char* meshcore_connect_run(MeshCoreApp* app) {
     /* DEVICE_QUERY gives model and firmware version. Older firmware may not
      * answer it — that is not fatal, we already have the settings. */
     len = mc_cmd_device_query(payload, sizeof(payload), MESHCORE_LINK_PROTO_VER);
-    if(len != 0 && meshcore_link_request(
-                       &app->link, payload, len, MC_RESP_DEVICE_INFO, &ev,
+    if(len != 0 && meshcore_session_request(
+                       app->session, payload, len, MC_RESP_DEVICE_INFO, &ev,
                        MESHCORE_LINK_TIMEOUT_MS)) {
         snprintf(node->model, sizeof(node->model), "%s", ev.u.device_info.model);
         snprintf(node->fw_ver, sizeof(node->fw_ver), "%s", ev.u.device_info.ver);
@@ -114,7 +110,7 @@ static void meshcore_scene_connect_show(MeshCoreApp* app, bool done) {
             "13=TX 14=RX 18=GND, 115200\n"
             "line errors: %lu",
             app->worker_error,
-            (unsigned long)meshcore_link_rx_errors(&app->link));
+            (unsigned long)meshcore_session_rx_errors(app->session));
     } else {
         const MeshCoreNodeInfo* n = &app->node;
         snprintf(

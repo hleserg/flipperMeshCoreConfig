@@ -13,7 +13,9 @@
  */
 #include <furi.h>
 
+#include "../messenger/meshcore_contacts.h"
 #include "../protocol/meshcore_link.h"
+#include "../protocol/meshcore_route.h"
 #include "fakes.h"
 
 /* ======================================================================== *
@@ -454,6 +456,183 @@ static void test_link_request_timeout(void) {
     meshcore_link_close(&link);
 }
 
+/* ======================================================================== *
+ *  Event routing (the session's policy, without the session's threads)
+ * ======================================================================== */
+static void test_route(void) {
+    section("routing: replies, streams and unsolicited pushes");
+
+    /* Idle: everything is unsolicited. This is the case the messenger depends
+     * on — a MSG_WAITING push arriving while the user is idle must reach the
+     * application rather than being dropped. */
+    CHECK(meshcore_route_event(false, MC_RESP_OK, false, MC_PUSH_MSG_WAITING) ==
+              MeshCoreRouteEvent,
+          "idle push goes to the application");
+    CHECK(meshcore_route_event(false, MC_RESP_OK, false, MC_RESP_OK) == MeshCoreRouteEvent,
+          "even a reply-looking code is unsolicited when nothing is pending");
+
+    /* In flight. */
+    CHECK(meshcore_route_event(true, MC_RESP_SELF_INFO, false, MC_RESP_SELF_INFO) ==
+              MeshCoreRouteReply,
+          "the awaited code completes the request");
+    CHECK(meshcore_route_event(true, MC_RESP_SELF_INFO, false, MC_RESP_ERR) == MeshCoreRouteReply,
+          "a node error ends the request");
+    CHECK(meshcore_route_event(true, MC_RESP_ERR, false, MC_RESP_ERR) == MeshCoreRouteReply,
+          "a request that awaits ERR still completes on ERR");
+
+    /* A push during a plain request must not be mistaken for the answer. */
+    CHECK(meshcore_route_event(true, MC_RESP_SELF_INFO, false, MC_PUSH_ADVERT) ==
+              MeshCoreRouteEvent,
+          "a push mid-request stays unsolicited");
+
+    /* During a stream, everything non-terminating is offered to the collector,
+     * which declines what is not its own — so pushes still get through. */
+    CHECK(meshcore_route_event(true, MC_RESP_END_OF_CONTACTS, true, MC_RESP_CONTACT) ==
+              MeshCoreRouteStream,
+          "contact records go to the collector");
+    CHECK(meshcore_route_event(true, MC_RESP_END_OF_CONTACTS, true, MC_RESP_CONTACTS_START) ==
+              MeshCoreRouteStream,
+          "the count header goes to the collector");
+    CHECK(meshcore_route_event(true, MC_RESP_END_OF_CONTACTS, true, MC_RESP_END_OF_CONTACTS) ==
+              MeshCoreRouteReply,
+          "the terminator completes the stream");
+    CHECK(meshcore_route_event(true, MC_RESP_END_OF_CONTACTS, true, MC_PUSH_MSG_WAITING) ==
+              MeshCoreRouteStream,
+          "a push mid-stream is offered to the collector first");
+}
+
+/* ======================================================================== *
+ *  Contact list
+ * ======================================================================== */
+static void make_contact(mc_contact_t* c, const char* name, uint32_t last_advert) {
+    memset(c, 0, sizeof(*c));
+    snprintf(c->adv_name, sizeof(c->adv_name), "%s", name);
+    c->last_advert = last_advert;
+    c->type = 1;
+}
+
+static void test_contacts_collect(void) {
+    section("contacts: collecting a GET_CONTACTS stream");
+
+    MeshCoreContacts contacts;
+    meshcore_contacts_reset(&contacts);
+
+    mc_event_t ev;
+    memset(&ev, 0, sizeof(ev));
+    ev.code = MC_RESP_CONTACTS_START;
+    ev.u.contacts_count = 3;
+    CHECK(meshcore_contacts_collect(&ev, &contacts), "CONTACTS_START belongs to the stream");
+    CHECK_EQ_U32(contacts.reported, 3, "announced count is remembered");
+
+    memset(&ev, 0, sizeof(ev));
+    ev.code = MC_RESP_CONTACT;
+    make_contact(&ev.u.contact, "alpha", 1000);
+    CHECK(meshcore_contacts_collect(&ev, &contacts), "CONTACT belongs to the stream");
+    CHECK_EQ_U32(contacts.count, 1, "contact stored");
+    CHECK_EQ_STR(contacts.items[0].name, "alpha", "contact name");
+
+    /* Anything else must be declined so it can reach the application. */
+    memset(&ev, 0, sizeof(ev));
+    ev.code = MC_PUSH_MSG_WAITING;
+    CHECK(!meshcore_contacts_collect(&ev, &contacts), "a push is not part of the stream");
+    CHECK_EQ_U32(contacts.count, 1, "and does not disturb the list");
+}
+
+static void test_contacts_overflow(void) {
+    section("contacts: more peers than fit");
+
+    MeshCoreContacts contacts;
+    meshcore_contacts_reset(&contacts);
+
+    mc_contact_t c;
+    for(size_t i = 0; i < MESHCORE_CONTACTS_MAX; i++) {
+        char name[16];
+        snprintf(name, sizeof(name), "n%u", (unsigned)i);
+        /* last_advert 1000, 1001, ... so the stalest is the first one. */
+        make_contact(&c, name, 1000 + (uint32_t)i);
+        CHECK(meshcore_contacts_add(&contacts, &c), "fits while there is room");
+    }
+    CHECK_EQ_U32(contacts.count, MESHCORE_CONTACTS_MAX, "list is full");
+    CHECK_EQ_U32(contacts.dropped, 0, "nothing dropped yet");
+
+    /* A fresher peer displaces the stalest one — a list of nodes last heard
+     * from months ago is not worth the screen. */
+    make_contact(&c, "fresh", 9999);
+    CHECK(meshcore_contacts_add(&contacts, &c), "a fresher peer is kept");
+    CHECK_EQ_U32(contacts.count, MESHCORE_CONTACTS_MAX, "still full, nothing grew");
+    CHECK_EQ_U32(contacts.dropped, 1, "displacement is counted");
+
+    bool found_fresh = false;
+    bool found_stalest = false;
+    for(size_t i = 0; i < contacts.count; i++) {
+        if(strcmp(contacts.items[i].name, "fresh") == 0) found_fresh = true;
+        if(strcmp(contacts.items[i].name, "n0") == 0) found_stalest = true;
+    }
+    CHECK(found_fresh, "the fresher peer is in the list");
+    CHECK(!found_stalest, "the stalest peer was the one dropped");
+
+    /* A staler peer than everything held is simply refused. */
+    make_contact(&c, "ancient", 1);
+    CHECK(!meshcore_contacts_add(&contacts, &c), "a staler peer is refused");
+    CHECK_EQ_U32(contacts.dropped, 2, "and counted");
+}
+
+static void test_contacts_sort(void) {
+    section("contacts: most recently heard first");
+
+    MeshCoreContacts contacts;
+    meshcore_contacts_reset(&contacts);
+
+    mc_contact_t c;
+    make_contact(&c, "old", 100);
+    meshcore_contacts_add(&contacts, &c);
+    make_contact(&c, "newest", 900);
+    meshcore_contacts_add(&contacts, &c);
+    make_contact(&c, "middle", 500);
+    meshcore_contacts_add(&contacts, &c);
+
+    meshcore_contacts_sort_by_last_seen(&contacts);
+
+    CHECK_EQ_STR(contacts.items[0].name, "newest", "first entry");
+    CHECK_EQ_STR(contacts.items[1].name, "middle", "second entry");
+    CHECK_EQ_STR(contacts.items[2].name, "old", "third entry");
+}
+
+static void test_contacts_age(void) {
+    section("contacts: rendering last seen");
+
+    char out[MESHCORE_AGE_LEN];
+
+    meshcore_contacts_format_age(0, 1000, out, sizeof(out));
+    CHECK_EQ_STR(out, "-", "unknown node clock");
+
+    meshcore_contacts_format_age(2000, 0, out, sizeof(out));
+    CHECK_EQ_STR(out, "-", "never heard from");
+
+    /* The node's clock can legitimately run ahead of the advert timestamp. */
+    meshcore_contacts_format_age(1000, 1200, out, sizeof(out));
+    CHECK_EQ_STR(out, "now", "clock skew reads as now, not as a negative age");
+
+    meshcore_contacts_format_age(1059, 1000, out, sizeof(out));
+    CHECK_EQ_STR(out, "now", "under a minute");
+
+    meshcore_contacts_format_age(1060, 1000, out, sizeof(out));
+    CHECK_EQ_STR(out, "1m", "exactly a minute");
+
+    meshcore_contacts_format_age(1000 + 3599, 1000, out, sizeof(out));
+    CHECK_EQ_STR(out, "59m", "just under an hour");
+
+    meshcore_contacts_format_age(1000 + 7200, 1000, out, sizeof(out));
+    CHECK_EQ_STR(out, "2h", "hours");
+
+    meshcore_contacts_format_age(1000 + 86400 * 3, 1000, out, sizeof(out));
+    CHECK_EQ_STR(out, "3d", "days");
+
+    /* Whatever it renders must fit the buffer the scene gives it. */
+    meshcore_contacts_format_age(0xFFFFFFFFu, 1, out, sizeof(out));
+    CHECK(strlen(out) < MESHCORE_AGE_LEN, "an absurd age still fits MESHCORE_AGE_LEN");
+}
+
 /* ======================================================================== */
 int main(void) {
     printf("MeshCore Config — host protocol tests\n");
@@ -478,6 +657,13 @@ int main(void) {
     test_link_request_skips_push();
     test_link_request_error();
     test_link_request_timeout();
+
+    test_route();
+
+    test_contacts_collect();
+    test_contacts_overflow();
+    test_contacts_sort();
+    test_contacts_age();
 
     printf("\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

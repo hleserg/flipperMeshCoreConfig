@@ -1,15 +1,32 @@
 # MeshCore Config
 
-A [Flipper Zero](https://flipperzero.one/) app for configuring
-[MeshCore](https://meshcore.co.uk/) nodes over the hardware UART — radio
-parameters, node identity, role, profiles from the SD card, and self-adverts,
-without a phone or a laptop.
+A [Flipper Zero](https://flipperzero.one/) app that drives a
+[MeshCore](https://meshcore.co.uk/) node over the hardware UART — configure it,
+and use it to send and receive mesh messages, without a phone or a laptop.
 
 By **Greyrock Labs**. MIT licensed.
 
-> **Status: work in progress.** Steps 1–3 of 5 are done: the app talks to a
-> node over UART, reads its identity and radio settings, and shows the raw
-> traffic. The editors and SD-card profiles are next.
+## Modes
+
+**Configurator** — read and change the node's radio parameters (frequency,
+bandwidth, spreading factor, coding rate, TX power), its name and role, apply
+saved profiles from the SD card, and trigger a self-advert.
+
+**Messenger** — the Flipper as a pocket MeshCore client: the contact list from
+your mesh, chats, and composing messages on the Flipper's keyboard.
+
+**The radio is not in the Flipper.** The node does the meshing, holds the keys
+and owns your identity; the Flipper is the screen and keyboard for it. Both
+modes talk to the node the same way, over the same three wires, so a node set
+up for one works for the other.
+
+> **Status: work in progress.** The app talks to a node over UART, reads its
+> identity and radio settings, shows the raw traffic, and lists the contacts
+> the node knows about. Message send/receive, the setting editors and SD-card
+> profiles are next. See `TASKS.md` for the current state.
+>
+> Everything so far is verified by the build and by host tests; the checks that
+> need a real node are still outstanding.
 
 ## Why
 
@@ -73,6 +90,9 @@ should work; only the two boards above are actively targeted.
   version, name and current radio settings
 - **Serial log** ✅ — hex dump of every companion frame in and out, for when the
   wiring or the node firmware is the thing being debugged
+- **Messenger → Contacts** ✅ — the peers your node knows, most recently heard
+  first, with how long ago each was seen
+- **Messenger → Chat / Compose / Channels** — reading and writing messages
 - **Radio** — frequency, bandwidth, spreading factor, coding rate, TX power
 - **Identity** — node name as it appears in adverts
 - **Role** — companion / repeater / room server *(see the caveat below)*

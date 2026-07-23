@@ -3,6 +3,7 @@
 /* Item order == submenu order == custom event id. */
 typedef enum {
     MeshCoreMenuIndexConnect,
+    MeshCoreMenuIndexMessenger,
     MeshCoreMenuIndexRadio,
     MeshCoreMenuIndexIdentity,
     MeshCoreMenuIndexRole,
@@ -27,6 +28,7 @@ void meshcore_scene_menu_on_enter(void* context) {
     submenu_add_item(submenu, label, idx, meshcore_scene_menu_submenu_callback, app)
 
     ITEM(app->node.valid ? "Reconnect" : "Connect", MeshCoreMenuIndexConnect);
+    ITEM("Messenger", MeshCoreMenuIndexMessenger);
     ITEM("Radio", MeshCoreMenuIndexRadio);
     ITEM("Identity", MeshCoreMenuIndexIdentity);
     ITEM("Role", MeshCoreMenuIndexRole);
@@ -52,6 +54,11 @@ bool meshcore_scene_menu_on_event(void* context, SceneManagerEvent event) {
         switch(event.event) {
         case MeshCoreMenuIndexConnect:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneConnect);
+            break;
+        case MeshCoreMenuIndexMessenger:
+            /* Contacts is the messenger's entry point; chat, compose and
+             * channels hang off it in later stages. */
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneContacts);
             break;
         case MeshCoreMenuIndexSerialLog:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneLog);
