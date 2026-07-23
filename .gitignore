@@ -16,6 +16,12 @@ compile_commands.json
 __pycache__/
 *.py[cod]
 
+# Host test binaries
+*.o
+*.obj
+*.pdb
+*.exe
+
 # OS
 Thumbs.db
 .DS_Store

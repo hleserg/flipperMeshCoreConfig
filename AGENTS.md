@@ -64,8 +64,22 @@ cat ~/.ufbt/current/ufbt_state.json
 
 The code itself uses no Unleashed-specific API, so it compiles against either.
 
-There are no unit tests; the build itself plus a run on hardware is the gate.
 **Do not call a step done until `ufbt` builds clean.**
+
+### Host tests
+
+The protocol layer also builds and runs on a PC:
+
+```sh
+pip install ziglang     # one-off; no admin rights needed
+pwsh test/run.ps1
+```
+
+These cover framing, frame assembly, command layout, response parsing and the
+request/reply logic in `meshcore_link.c` — everything that does not need radio.
+Run them after any change under `protocol/`; they take about a second and they
+are the only way to catch a wire-format mistake without a node on the bench.
+See `test/README.md`.
 
 ## Layout
 
@@ -85,6 +99,11 @@ scenes/
   meshcore_scene_menu.c    main menu
   meshcore_scene_connect.c handshake on a worker thread, shows model/fw/radio
   meshcore_scene_log.c     passthrough hex log, refreshed on the scene tick
+test/
+  run.ps1                  compile + run the host tests
+  test_meshcore.c          framing, command layout, parsers, link logic
+  fakes.c / fakes.h        fake UART, fake log, fake clock
+  shims/furi.h             minimal host stand-in for the Flipper <furi.h>
 ```
 
 Planned (not yet present):

@@ -1,0 +1,41 @@
+<#
+    Builds and runs the host protocol tests.
+
+    Uses Zig as the C compiler because it installs with `pip install ziglang`
+    and needs no admin rights or MSYS2 — see test/README.md.
+
+        pwsh test/run.ps1
+#>
+$ErrorActionPreference = 'Stop'
+
+$root = Split-Path -Parent $PSScriptRoot
+$out = Join-Path $root 'build/test'
+New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+$cc = @('python', '-m', 'ziglang', 'cc')
+$common = @('-std=c11', '-g', "-I$root/test/shims")
+# Our own code is held to the same bar as the firmware build.
+$strict = @('-Wall', '-Wextra', '-Werror')
+
+function Compile($src, $obj, $extra) {
+    $args = $cc[1..($cc.Length - 1)] + $common + $extra + @('-c', $src, '-o', $obj)
+    & $cc[0] @args
+    if ($LASTEXITCODE -ne 0) { throw "compile failed: $src" }
+}
+
+# The vendored library is upstream code: compiled, but not held to our warning
+# settings, so a clang-only warning there cannot block our tests.
+Compile "$root/protocol/meshcore_c/meshcore_companion.c" "$out/meshcore_companion.o" @()
+Compile "$root/protocol/meshcore_link.c" "$out/meshcore_link.o" $strict
+Compile "$root/test/fakes.c" "$out/fakes.o" $strict
+Compile "$root/test/test_meshcore.c" "$out/test_meshcore.o" $strict
+
+$exe = Join-Path $out 'test_meshcore.exe'
+$linkArgs = $cc[1..($cc.Length - 1)] + @(
+    "$out/meshcore_companion.o", "$out/meshcore_link.o",
+    "$out/fakes.o", "$out/test_meshcore.o", '-o', $exe)
+& $cc[0] @linkArgs
+if ($LASTEXITCODE -ne 0) { throw 'link failed' }
+
+& $exe
+exit $LASTEXITCODE
