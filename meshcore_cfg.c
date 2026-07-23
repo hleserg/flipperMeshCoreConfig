@@ -83,6 +83,10 @@ static MeshCoreApp* meshcore_cfg_app_alloc(void) {
     view_dispatcher_add_view(
         app->view_dispatcher, MeshCoreViewTextInput, text_input_get_view(app->text_input));
 
+    app->var_list = variable_item_list_alloc();
+    view_dispatcher_add_view(
+        app->view_dispatcher, MeshCoreViewVarList, variable_item_list_get_view(app->var_list));
+
     app->log = meshcore_log_alloc();
     /* Configurator and Messenger share one node on the USART. The Logger runs
      * its own session, so it can sit on either port. */
@@ -153,12 +157,14 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewTextBox);
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewLoading);
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewTextInput);
+    view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewVarList);
 
     submenu_free(app->submenu);
     widget_free(app->widget);
     text_box_free(app->text_box);
     loading_free(app->loading);
     text_input_free(app->text_input);
+    variable_item_list_free(app->var_list);
 
     furi_string_free(app->text_buf[0]);
     furi_string_free(app->text_buf[1]);
@@ -194,6 +200,7 @@ static const struct {
     {"connect", MeshCoreSceneConnect},
     {"contacts", MeshCoreSceneContacts},
     {"profiles", MeshCoreSceneProfiles},
+    {"radio", MeshCoreSceneRadio},
     {"log", MeshCoreSceneLog},
 };
 
