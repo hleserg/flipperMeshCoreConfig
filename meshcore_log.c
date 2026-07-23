@@ -53,10 +53,12 @@ void meshcore_log_frame(MeshCoreLog* log, bool tx, const uint8_t* payload, size_
     furi_assert(log);
     furi_mutex_acquire(log->mutex, FuriWaitForever);
 
-    /* "> 01 03 00 ..." for what we send, "< ..." for what the node replies.
-     * Direction marks match the on-wire lead byte the *other* side writes, so
-     * they read the way a serial sniffer would print them. */
-    furi_string_cat_printf(log->text, "%c %02X", tx ? '>' : '<', len ? payload[0] : 0);
+    /* Deliberately "TX"/"RX" and not '<'/'>'. In this protocol those glyphs are
+     * the wire lead bytes and they mean the opposite of the intuitive
+     * out/in: we transmit frames led by 0x3C '<' and receive ones led by
+     * 0x3E '>'. Printing the arrows here would read backwards to anyone who
+     * knows the protocol, which is exactly who uses this view. */
+    furi_string_cat_printf(log->text, "%s %02X", tx ? "TX" : "RX", len ? payload[0] : 0);
 
     /* One frame is at most MC_MAX_PAYLOAD bytes; cap the dump so a burst of
      * traffic cannot flush the whole log in one entry. */

@@ -7,7 +7,10 @@
  */
 #include "../meshcore_cfg.h"
 
-#define MESHCORE_CONNECT_EVENT_DONE 1u
+/* Offset well clear of the menu's item indices: a completion event that lands
+ * just after the user backs out would otherwise be routed to scene_menu and
+ * move its cursor. */
+#define MESHCORE_CONNECT_EVENT_DONE 0x100u
 #define MESHCORE_CONNECT_WORKER_STACK 2048u
 
 static void meshcore_connect_copy_self_info(MeshCoreNodeInfo* node, const mc_self_info_t* info) {
