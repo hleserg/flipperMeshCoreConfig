@@ -1,5 +1,7 @@
 #include "meshcore_cfg.h"
 
+#include "detect/meshcore_detect.h"
+
 static bool meshcore_cfg_custom_event_callback(void* context, uint32_t event) {
     furi_assert(context);
     MeshCoreApp* app = context;
@@ -44,6 +46,11 @@ static void meshcore_cfg_push_callback(
 
 static MeshCoreApp* meshcore_cfg_app_alloc(void) {
     MeshCoreApp* app = malloc(sizeof(MeshCoreApp));
+
+    /* Tell any node wired to us that the Flipper is here, before anything
+     * else: a node sampling its detect input while we were still booting
+     * would come up on radio instead of serial. */
+    meshcore_detect_init();
 
     app->gui = furi_record_open(RECORD_GUI);
     app->view_dispatcher = view_dispatcher_alloc();
@@ -137,6 +144,9 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     view_dispatcher_free(app->view_dispatcher);
 
     furi_record_close(RECORD_GUI);
+    /* Release the detect lines last, so a node rebooted after we exit sees
+     * LOW and brings its own radio up. */
+    meshcore_detect_deinit();
     free(app);
 }
 
