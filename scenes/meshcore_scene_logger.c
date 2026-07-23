@@ -53,17 +53,25 @@ static void meshcore_scene_logger_show_running(MeshCoreApp* app) {
 
     /* SNR gets the primary font and the top line, because it is the number the
      * operator is actually walking by — everything else is confirmation that
-     * the thing is alive. */
+     * the thing is alive. The grade word turns the raw number into the
+     * acceptance verdict (GOOD/OK/WEAK against +5 dB) so nobody does quarter-dB
+     * arithmetic while walking a riverbank. */
     int8_t snr_q4 = 0;
     int8_t rssi = 0;
     if(meshcore_logger_last_rx(app->logger, &snr_q4, &rssi)) {
         char snr[MESHCORE_SNR_LEN];
         meshcore_rxlog_format_snr(snr_q4, snr, sizeof(snr));
         snprintf(line, sizeof(line), "SNR %s  RSSI %d", snr, (int)rssi);
+        widget_add_string_element(app->widget, 0, 24, AlignLeft, AlignBottom, FontPrimary, line);
+
+        /* Right-aligned so it sits at the edge and reads as a verdict, not part
+         * of the number. */
+        const char* grade = meshcore_rxlog_grade_label(meshcore_rxlog_grade_snr(snr_q4));
+        widget_add_string_element(app->widget, 128, 24, AlignRight, AlignBottom, FontPrimary, grade);
     } else {
         snprintf(line, sizeof(line), "waiting for traffic");
+        widget_add_string_element(app->widget, 0, 24, AlignLeft, AlignBottom, FontPrimary, line);
     }
-    widget_add_string_element(app->widget, 0, 24, AlignLeft, AlignBottom, FontPrimary, line);
 
     /* Packets prove the radio is heard at all; the ping ratio is the number the
      * acceptance criteria are written in, so both belong on one line. */
