@@ -80,15 +80,23 @@ bool meshcore_scene_menu_on_event(void* context, SceneManagerEvent event) {
         case MeshCoreMenuIndexRadio:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneRadio);
             break;
+        case MeshCoreMenuIndexIdentity:
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneIdentity);
+            break;
+        case MeshCoreMenuIndexRole:
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneRole);
+            break;
         case MeshCoreMenuIndexProfiles:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneProfiles);
+            break;
+        case MeshCoreMenuIndexSendAdvert:
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneAdvert);
             break;
         case MeshCoreMenuIndexSerialLog:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneLog);
             break;
         default:
-            /* Identity / Role / Send advert are still ahead; the selection is
-             * remembered until then. */
+            /* Every menu item now routes somewhere. */
             break;
         }
 

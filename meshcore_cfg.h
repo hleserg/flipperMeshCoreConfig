@@ -107,6 +107,10 @@ typedef struct {
     /* Backing buffer for the compose TextInput. MC_MAX_TEXT is the protocol's
      * own message cap, so nothing here can exceed what a node will carry. */
     char compose_buf[MC_MAX_TEXT];
+    /* Backing buffer for the Identity editor's TextInput (the node name). A
+     * name is at most MC_NAME_LEN; a separate buffer keeps it from clobbering a
+     * half-typed message. */
+    char identity_buf[MC_NAME_LEN + 1];
 
     /* Logger — owns its own session, on whichever port the node is on. */
     MeshCoreLogger* logger;
