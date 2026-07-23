@@ -17,6 +17,13 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DOCS = os.path.join(ROOT, "docs")
+SRC = os.path.join(ROOT, "docs-src")
+
+# The source-to-output counts below have to compare like with like, so the
+# sources are read through the same include expansion the builder uses rather
+# than a second copy of that logic that could drift away from it.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from build import expand_includes  # noqa: E402
 
 PAGES = ["index.html", "app-guide.html", "guide-sergey.html", "guide-mark.html"]
 
@@ -39,6 +46,13 @@ def read(name: str) -> str:
 
 
 def main() -> int:
+    # The pages are Russian and full of emoji; on a Windows console the default
+    # code page cannot encode them and the run dies on a *passing* check.
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except AttributeError:  # pragma: no cover - very old Python
+        pass
+
     print("docs site verification\n")
 
     for name in PAGES:
@@ -153,6 +167,44 @@ def main() -> int:
 
     print()
 
+    # --- the field part is shared, and "shared" has to mean identical.
+    # The two of them run these scenarios together and compare the numbers
+    # afterwards, so a sentence that drifted in one guide is two people
+    # running different experiments without noticing.
+    with open(os.path.join(SRC, "field-common.md"), encoding="utf-8") as handle:
+        field = handle.read()
+
+    for heading in re.findall(r"^#{2,3} (.+)$", field, re.M):
+        # `code` and **bold** become tags, so a heading containing them is not
+        # one contiguous string in the output. Compare the plain runs instead.
+        fragments = [f.strip() for f in re.split(r"`|\*\*", heading) if len(f.strip()) > 4]
+        in_both = all(f in sergey and f in mark for f in fragments)
+        check(in_both, f"field section in both guides: {heading[:44]}")
+
+    for phrase in [
+        "Вниз по течению не вернуться",
+        "забыт навсегда",
+        "Сеть под тестом — не средство связи",
+        "два судна расходятся по воде",
+        "прямой плёс",
+        "и километры по воде, и прямое расстояние",
+        "замер → вмешательство → повторный замер",
+        "Сверьте часы перед первым замером",
+    ]:
+        check(phrase in sergey and phrase in mark, f"both guides carry: {phrase[:44]}")
+
+    # The old flat-site walk must be gone, or a reader following the table of
+    # contents will still find "walk the perimeter" and do that instead.
+    for stale in ["по периметру площадки", "Фаза 1. Параллельный обход", "Прогон по площадке"]:
+        check(
+            stale not in sergey and stale not in mark,
+            f"the old flat-site walk is gone: {stale[:40]}",
+        )
+
+    check("{{include:" not in sergey and "{{include:" not in mark, "no unexpanded includes")
+
+    print()
+
     # --- content survived the rendering, counted against the source rather
     # than against a guessed floor: a section quietly lost in conversion is
     # exactly the failure this is here to catch.
@@ -165,7 +217,7 @@ def main() -> int:
         ("app-guide.html", "app-guide.md"),
     ]:
         with open(os.path.join(src_dir, source_name), encoding="utf-8") as handle:
-            source = handle.read()
+            source = expand_includes(handle.read())
         text = read(page_name)
 
         src_tables = len(re.findall(r"^[ \t]*\|[ :|\-]+\|[ \t]*$", source, re.M))
