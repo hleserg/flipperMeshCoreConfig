@@ -3,8 +3,8 @@ App(
     name="MeshCore Config",
     apptype=FlipperAppType.EXTERNAL,
     entry_point="meshcore_cfg_app",
-    # Bumped once the UART + protocol layers land; the skeleton is cheap.
-    stack_size=2 * 1024,
+    # GUI thread only; the protocol worker gets its own stack (see scene_connect).
+    stack_size=4 * 1024,
     fap_category="GPIO",
     fap_icon="meshcore_10px.png",
     fap_author="Greyrock Labs",

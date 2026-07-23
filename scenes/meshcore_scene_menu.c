@@ -8,6 +8,7 @@ typedef enum {
     MeshCoreMenuIndexRole,
     MeshCoreMenuIndexProfiles,
     MeshCoreMenuIndexSendAdvert,
+    MeshCoreMenuIndexSerialLog,
 } MeshCoreMenuIndex;
 
 static void meshcore_scene_menu_submenu_callback(void* context, uint32_t index) {
@@ -25,12 +26,13 @@ void meshcore_scene_menu_on_enter(void* context) {
 #define ITEM(label, idx) \
     submenu_add_item(submenu, label, idx, meshcore_scene_menu_submenu_callback, app)
 
-    ITEM("Connect", MeshCoreMenuIndexConnect);
+    ITEM(app->node.valid ? "Reconnect" : "Connect", MeshCoreMenuIndexConnect);
     ITEM("Radio", MeshCoreMenuIndexRadio);
     ITEM("Identity", MeshCoreMenuIndexIdentity);
     ITEM("Role", MeshCoreMenuIndexRole);
     ITEM("Profiles", MeshCoreMenuIndexProfiles);
     ITEM("Send advert", MeshCoreMenuIndexSendAdvert);
+    ITEM("Serial log", MeshCoreMenuIndexSerialLog);
 
 #undef ITEM
 
@@ -46,8 +48,20 @@ bool meshcore_scene_menu_on_event(void* context, SceneManagerEvent event) {
 
     if(event.type == SceneManagerEventTypeCustom) {
         scene_manager_set_scene_state(app->scene_manager, MeshCoreSceneMenu, event.event);
-        /* Step 1 is a static list: the target scenes do not exist yet, so the
-         * selection is only remembered. Navigation is wired up in steps 2-5. */
+
+        switch(event.event) {
+        case MeshCoreMenuIndexConnect:
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneConnect);
+            break;
+        case MeshCoreMenuIndexSerialLog:
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneLog);
+            break;
+        default:
+            /* Radio / Identity / Role / Profiles / Send advert land in steps
+             * 4 and 5; the selection is remembered until then. */
+            break;
+        }
+
         return true;
     }
 

@@ -42,18 +42,24 @@ There are no unit tests; the build itself plus a run on hardware is the gate.
 ```
 application.fam            app manifest (appid, entry point, icon, category)
 meshcore_cfg.h/.c          MeshCoreApp state, ViewDispatcher/SceneManager wiring, entry point
+meshcore_log.h/.c          mutex-guarded in-memory traffic log shown by scene_log
 meshcore_10px.png          10x10 app icon
+uart/
+  meshcore_uart.h/.c       furi_hal_serial wrapper; bytes only, no protocol
+protocol/
+  meshcore_c/              vendored upstream library — do not patch, see VENDOR.md
+  meshcore_link.h/.c       binds meshcore_c to the UART layer; blocking request/poll
 scenes/
   meshcore_scene_config.h  X-macro list — the single place scenes are registered
   meshcore_scene.h/.c      generated scene enum + handler tables
   meshcore_scene_menu.c    main menu
+  meshcore_scene_connect.c handshake on a worker thread, shows model/fw/radio
+  meshcore_scene_log.c     passthrough hex log, refreshed on the scene tick
 ```
 
 Planned (not yet present):
 
 ```
-uart/                      furi_hal_serial wrapper: init / read / write / deinit
-protocol/                  vendored meshcore_c + binding of its buffers to the UART layer
 profiles/                  JSON profile loading from the SD card
 ```
 
@@ -162,14 +168,37 @@ scope for this FAP** — it is a documented prerequisite.
 - `VariableItemList` for value pickers; it renders the `‹ ›` arrows for free.
 - Comments explain *why*, not *what*.
 
+### Threading
+
+Three contexts, and mixing them is the main way to break this app:
+
+- **ISR** — `meshcore_uart_rx_isr` only. Drains the peripheral into a stream
+  buffer and returns. Never allocate, never block, never touch a view.
+- **Worker thread** — everything in `protocol/` blocks, so every `mc_cmd_*` /
+  `meshcore_link_request` call belongs here. A worker must not call any GUI
+  function; it reports back with `view_dispatcher_send_custom_event()`, which
+  is safe to call from another thread. See `scene_connect` for the shape:
+  `furi_thread_alloc_ex` in `on_enter`, join and free in `on_exit`.
+- **GUI thread** — scene handlers. Never call into `protocol/` from here; a
+  silent node would freeze the UI for the request timeout.
+
+`TextBox` stores the `const char*` it is given rather than copying it, and the
+GUI service redraws from that pointer on its own thread. So the string behind a
+live `TextBox` must never be mutated — `scene_log` keeps two `FuriString`
+buffers in `MeshCoreApp` and swaps between them. `Widget` elements do copy, so
+a stack buffer is fine there.
+
 ## Working order
 
 Incremental; each step must build under `ufbt` before the next begins.
 
 1. ufbt skeleton: manifest, entry point, SceneManager, static `scene_menu`. ← **done**
 2. UART layer + `scene_connect`: open the port, read self-info, show model and
-   firmware version, plus a passthrough log for debugging.
-3. Vendor `meshcore_c`, wire the first real command (read config).
+   firmware version, plus a passthrough log for debugging. ← **done**
+3. Vendor `meshcore_c`, wire the first real command (read config). ← **done**
+   (folded into step 2: reading self-info *is* the config read, and the task
+   forbids hand-rolling a frame parser, so the library had to land first.
+   `MeshCoreNodeInfo` in `meshcore_cfg.h` is the config the editors will edit.)
 4. `scene_radio` / `scene_identity` / `scene_role` editors on `VariableItemList`.
 5. `scene_profiles` (JSON from `/ext/apps_data/meshcore_cfg/profiles/`) and
    `scene_apply` (send commands, show a result checklist).

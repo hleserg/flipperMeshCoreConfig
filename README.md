@@ -7,8 +7,9 @@ without a phone or a laptop.
 
 By **Greyrock Labs**. MIT licensed.
 
-> **Status: work in progress.** Step 1 of 5 — the app skeleton and main menu.
-> The menu is currently static; the UART and protocol layers land next.
+> **Status: work in progress.** Steps 1–3 of 5 are done: the app talks to a
+> node over UART, reads its identity and radio settings, and shows the raw
+> traffic. The editors and SD-card profiles are next.
 
 ## Why
 
@@ -68,14 +69,19 @@ should work; only the two boards above are actively targeted.
 
 ## Features
 
-Planned, in the order they are being built:
-
-- **Connect** — open the UART, handshake, show node model and firmware version
+- **Connect** ✅ — open the UART, handshake, show the node's model, firmware
+  version, name and current radio settings
+- **Serial log** ✅ — hex dump of every companion frame in and out, for when the
+  wiring or the node firmware is the thing being debugged
 - **Radio** — frequency, bandwidth, spreading factor, coding rate, TX power
 - **Identity** — node name as it appears in adverts
 - **Role** — companion / repeater / room server *(see the caveat below)*
 - **Profiles** — apply a saved `*.json` profile from the SD card
 - **Send advert** — trigger a zero-hop or flood self-advert
+
+If Connect fails, open **Serial log**: an empty log means nothing came back at
+all (wiring, or a node that only speaks USB-CDC/BLE), while garbage means the
+baud rate or the TX/RX pair is wrong.
 
 Profiles live in `/ext/apps_data/meshcore_cfg/profiles/` and look like this:
 

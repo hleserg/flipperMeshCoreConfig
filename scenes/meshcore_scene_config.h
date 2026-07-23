@@ -9,3 +9,5 @@
  * different ADD_SCENE definition each time.
  */
 ADD_SCENE(meshcore, menu, Menu)
+ADD_SCENE(meshcore, connect, Connect)
+ADD_SCENE(meshcore, log, Log)
