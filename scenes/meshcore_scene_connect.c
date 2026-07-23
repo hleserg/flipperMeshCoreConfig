@@ -5,6 +5,7 @@
  * only woken by a custom event when the worker is done. Nothing below the
  * scene layer ever touches a view.
  */
+#include "../detect/meshcore_detect.h"
 #include "../meshcore_cfg.h"
 
 /* Offset well clear of the menu's item indices: a completion event that lands
@@ -93,14 +94,21 @@ static void meshcore_scene_connect_show(MeshCoreApp* app, bool done) {
     widget_reset(app->widget);
 
     if(!done) {
+        /* Debug mode owns PA13, which is the block A detect line. Saying so
+         * here is cheaper than debugging a node that came up on radio because
+         * it never saw the detect signal. */
+        MeshCoreDetectState detect = meshcore_detect_state();
         snprintf(
             text,
             sizeof(text),
             "\e#Connecting...\n\n"
-            "13 = TX  ->  node RX\n"
-            "14 = RX  <-  node TX\n"
-            "18 = GND\n"
-            "115200 8N1");
+            "block A: 11 GND 12 DET\n"
+            "         13 TX  14 RX\n"
+            "115200 8N1\n"
+            "detect A%s B%s%s",
+            detect.block_a_high ? "+" : "-",
+            detect.block_b_high ? "+" : "-",
+            detect.debug_mode ? "\nturn Debug OFF: it owns pin 12" : "");
     } else if(app->worker_error) {
         snprintf(
             text,
