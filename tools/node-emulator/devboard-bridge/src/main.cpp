@@ -7,15 +7,19 @@
  * MeshCore exists, because anything it "helps" with is something that can
  * disagree with a real node.
  *
- * Wiring, node side of the bridge:
+ * Wiring, node side of the bridge -- nothing to wire if the board is seated on
+ * the Flipper's header, which is what these pins are for:
  *
- *     Devboard U_TX (GPIO17) -> Flipper pin 14 (RX)
- *     Devboard U_RX (GPIO18) <- Flipper pin 13 (TX)
- *     GND                    <-> Flipper pin 11 or 18
+ *     Devboard TX (GPIO43) -> Flipper pin 14 (RX)
+ *     Devboard RX (GPIO44) <- Flipper pin 13 (TX)
+ *     GND                  <-> Flipper pin 11 or 18
  *
- * The GPIO numbers come from the devboard's own firmware, which names them
- * CLI_TXD and CLI_RXD (blackmagic-esp32-s2, main/cli/cli-commands-gpio.c) --
- * not from guesswork.
+ * The GPIO numbers come from the devboard's own USB-UART bridge, which does
+ * this same job (blackmagic-esp32-s2, main/usb-uart.c). They are deliberately
+ * NOT the 17/18 that cli-commands-gpio.c labels CLI_TXD/CLI_RXD: that is UART1,
+ * the board's own console, and it does not reach the Flipper header at all.
+ * Writing to it fails silently -- the port opens, the writes succeed, and the
+ * bytes are simply gone.
  *
  * 3.3 V logic on both sides, so no level shifting.
  */
