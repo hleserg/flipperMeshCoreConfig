@@ -23,7 +23,16 @@
 #include <stdint.h>
 
 #define MESHCORE_UART_BAUD    115200u
-#define MESHCORE_UART_RX_BUFSZ 512u
+/* Sized for the largest uninterrupted burst a node sends, not for one frame.
+ * A GET_CONTACTS reply arrives back to back -- CONTACTS_START, a 151-byte
+ * frame per contact, then END_OF_CONTACTS -- so a node with twenty contacts
+ * puts over 3 KB on the wire with no gap for the reader to catch up in.
+ *
+ * Undersizing this does not look like a lost frame, which is what makes it
+ * expensive to diagnose: the framer resyncs on the next plausible length field
+ * and hands up a record assembled from the tail of one contact and the head of
+ * the next. That surfaced as a node named "RO" instead of "ROVER-M". */
+#define MESHCORE_UART_RX_BUFSZ 4096u
 
 typedef struct MeshCoreUart MeshCoreUart;
 
