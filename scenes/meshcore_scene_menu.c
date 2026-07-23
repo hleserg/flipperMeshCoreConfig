@@ -77,6 +77,9 @@ bool meshcore_scene_menu_on_event(void* context, SceneManagerEvent event) {
         case MeshCoreMenuIndexLogger:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneLogger);
             break;
+        case MeshCoreMenuIndexRadio:
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneRadio);
+            break;
         case MeshCoreMenuIndexProfiles:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneProfiles);
             break;
@@ -84,8 +87,8 @@ bool meshcore_scene_menu_on_event(void* context, SceneManagerEvent event) {
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneLog);
             break;
         default:
-            /* Radio / Identity / Role / Send advert are still ahead; the
-             * selection is remembered until then. */
+            /* Identity / Role / Send advert are still ahead; the selection is
+             * remembered until then. */
             break;
         }
 

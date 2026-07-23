@@ -27,6 +27,7 @@
 #include <gui/modules/submenu.h>
 #include <gui/modules/text_box.h>
 #include <gui/modules/text_input.h>
+#include <gui/modules/variable_item_list.h>
 #include <gui/modules/widget.h>
 
 #include "config/meshcore_apply.h"
@@ -50,6 +51,7 @@ typedef enum {
     MeshCoreViewTextBox,
     MeshCoreViewLoading,
     MeshCoreViewTextInput,
+    MeshCoreViewVarList,
 } MeshCoreViewId;
 
 /* What the node told us about itself. Filled by scene_connect from SELF_INFO
@@ -87,6 +89,7 @@ typedef struct {
     TextBox* text_box;
     Loading* loading;
     TextInput* text_input;
+    VariableItemList* var_list;
 
     /* Transport + protocol */
     MeshCoreLog* log;
