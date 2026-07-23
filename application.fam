@@ -22,6 +22,7 @@ App(
         "meshcore_cfg.c",
         "meshcore_log.c",
         "uart/*.c",
+        "config/*.c",
         "protocol/*.c",
         "protocol/meshcore_c/*.c",
         "messenger/*.c",
