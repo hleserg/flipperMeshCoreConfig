@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 420" role="img" aria-label="Схема подключения двух нод к флипперу">
+  <style>
+    .box{fill:#151918;stroke:#2a312f;stroke-width:2}
+    .lbl{fill:#d7e0dc;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
+    .sub{fill:#8fa39b;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+    .pin{fill:#ffb340;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+    .tx{stroke:#5ef2a4;stroke-width:2.5;fill:none}
+    .rx{stroke:#7fd6ff;stroke-width:2.5;fill:none}
+    .gnd{stroke:#8fa39b;stroke-width:2.5;fill:none;stroke-dasharray:5 4}
+    .cap{fill:#8fa39b;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  </style>
+  <rect width="700" height="420" fill="#0d0f0f"/>
+
+  <!-- Flipper -->
+  <rect class="box" x="30" y="120" width="170" height="180" rx="10"/>
+  <text class="lbl" x="48" y="150">Flipper Zero</text>
+  <text class="sub" x="48" y="170">гребёнка GPIO</text>
+
+  <text class="pin" x="150" y="200">13 TX</text>
+  <text class="pin" x="150" y="222">14 RX</text>
+  <text class="pin" x="150" y="252">15 TX</text>
+  <text class="pin" x="150" y="274">16 RX</text>
+  <text class="sub" x="48" y="200">USART</text>
+  <text class="sub" x="48" y="252">LPUART</text>
+  <text class="pin" x="48" y="296">18 GND</text>
+
+  <!-- T114 -->
+  <rect class="box" x="440" y="60" width="230" height="130" rx="10"/>
+  <text class="lbl" x="458" y="88">Heltec T114 · POCKET-S</text>
+  <text class="sub" x="458" y="107">хедер P1</text>
+  <text class="pin" x="458" y="132">GPIO9  = UART1_RX</text>
+  <text class="pin" x="458" y="152">GPIO10 = UART1_TX</text>
+  <text class="pin" x="458" y="172">P1·4   = GND</text>
+
+  <!-- V4 -->
+  <rect class="box" x="440" y="240" width="230" height="130" rx="10"/>
+  <text class="lbl" x="458" y="268">Heltec V4 · ROVER-S</text>
+  <text class="sub" x="458" y="287">хедер J3</text>
+  <text class="pin" x="458" y="312">GPIO47 = RX</text>
+  <text class="pin" x="458" y="332">GPIO48 = TX</text>
+  <text class="pin" x="458" y="352">J2·1   = GND</text>
+
+  <!-- T114 links: 13 -> RX(9), TX(10) -> 14 -->
+  <path class="tx" d="M205 196 C 320 196, 330 128, 435 128"/>
+  <path class="rx" d="M205 218 C 330 218, 340 148, 435 148"/>
+  <path class="gnd" d="M205 292 C 300 292, 360 172, 435 172"/>
+
+  <!-- V4 links: 15 -> RX(47), TX(48) -> 16 -->
+  <path class="tx" d="M205 248 C 320 248, 330 308, 435 308"/>
+  <path class="rx" d="M205 270 C 330 270, 340 328, 435 328"/>
+  <path class="gnd" d="M205 292 C 320 292, 360 348, 435 348"/>
+
+  <!-- legend -->
+  <line class="tx" x1="40" y1="345" x2="80" y2="345"/>
+  <text class="cap" x="88" y="349">выход флиппера → вход ноды (TX → RX)</text>
+  <line class="rx" x1="40" y1="368" x2="80" y2="368"/>
+  <text class="cap" x="88" y="372">выход ноды → вход флиппера (TX → RX)</text>
+  <line class="gnd" x1="40" y1="391" x2="80" y2="391"/>
+  <text class="cap" x="88" y="395">общая земля — обязательно</text>
+
+  <text class="cap" x="440" y="395">Питание нод — своё. От флиппера только GND и данные.</text>
+  <text class="cap" x="440" y="412">TX↔RX перекрёстно: TX в TX не работает никогда.</text>
+</svg>

@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0d0f0f">
+<title>Полевой тест — Сергей — MeshCore Config</title>
+<link rel="manifest" href="manifest.webmanifest">
+<style>
+:root{
+  --bg:#0d0f0f; --panel:#151918; --panel-2:#1c2120; --ink:#d7e0dc; --dim:#8fa39b;
+  --line:#2a312f; --accent:#5ef2a4; --accent-dim:#2f7d59; --amber:#ffb340;
+  --warn:#ffcc66; --danger:#ff7a6b; --tip:#7fd6ff; --ok:#5ef2a4;
+  --mono:ui-monospace,'Cascadia Mono','Segoe UI Mono','SF Mono',Menlo,Consolas,monospace;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.65 var(--mono);
+  padding:0 0 4rem;
+}
+.wrap{max-width:52rem;margin:0 auto;padding:0 1rem}
+header.site{
+  border-bottom:1px solid var(--line);background:linear-gradient(180deg,#121615,#0d0f0f);
+  position:sticky;top:0;z-index:20;backdrop-filter:blur(6px)
+}
+header.site .wrap{display:flex;align-items:center;gap:.75rem;padding-top:.7rem;padding-bottom:.7rem}
+header.site a.brand{color:var(--accent);text-decoration:none;font-weight:700;letter-spacing:.02em}
+header.site .tag{color:var(--dim);font-size:.78rem;margin-left:auto}
+h1,h2,h3,h4{line-height:1.25;margin:2rem 0 .75rem;color:#eef5f2}
+h1{font-size:1.6rem;margin-top:1.5rem}
+h2{font-size:1.25rem;border-bottom:1px solid var(--line);padding-bottom:.35rem}
+h3{font-size:1.05rem;color:var(--accent)}
+p,li{overflow-wrap:anywhere}
+a{color:var(--accent);text-underline-offset:.2em}
+code{background:var(--panel-2);padding:.12em .38em;border-radius:.25rem;font-size:.92em}
+pre{
+  background:var(--panel);border:1px solid var(--line);border-radius:.5rem;
+  padding:.85rem 1rem;overflow-x:auto;position:relative;margin:1rem 0
+}
+pre code{background:none;padding:0;font-size:.86rem;line-height:1.5}
+.copy{
+  position:absolute;top:.4rem;right:.4rem;background:var(--panel-2);color:var(--dim);
+  border:1px solid var(--line);border-radius:.35rem;padding:.28rem .6rem;
+  font:inherit;font-size:.72rem;cursor:pointer;transition:.15s
+}
+.copy:hover{color:var(--accent);border-color:var(--accent-dim)}
+.copy.done{color:#0d0f0f;background:var(--accent);border-color:var(--accent)}
+table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.9rem;display:block;overflow-x:auto}
+th,td{border:1px solid var(--line);padding:.5rem .6rem;text-align:left;vertical-align:top}
+th{background:var(--panel-2);color:#eef5f2}
+tr:nth-child(even) td{background:rgba(255,255,255,.015)}
+blockquote{margin:0;padding:0}
+.callout{
+  border-left:3px solid var(--dim);background:var(--panel);border-radius:.4rem;
+  padding:.8rem 1rem;margin:1.1rem 0
+}
+.callout p:first-child{margin-top:0}.callout p:last-child{margin-bottom:0}
+.callout.warning{border-color:var(--warn);background:rgba(255,204,102,.07)}
+.callout.danger{border-color:var(--danger);background:rgba(255,122,107,.08)}
+.callout.tip{border-color:var(--tip);background:rgba(127,214,255,.07)}
+.callout.success{border-color:var(--ok);background:rgba(94,242,164,.07)}
+.toc{background:var(--panel);border:1px solid var(--line);border-radius:.5rem;margin:1.5rem 0}
+.toc summary{cursor:pointer;padding:.7rem 1rem;color:var(--accent);font-weight:700}
+.toc ol{margin:0;padding:0 1rem 1rem 2rem}
+.toc li{margin:.25rem 0}
+.toc a{color:var(--ink);text-decoration:none}
+.toc a:hover{color:var(--accent)}
+.toc .lvl3{margin-left:1rem;font-size:.9rem;color:var(--dim)}
+.cards{display:grid;gap:1rem;grid-template-columns:1fr;margin:1.5rem 0}
+@media(min-width:34rem){.cards{grid-template-columns:1fr 1fr}}
+.card{
+  display:block;background:var(--panel);border:1px solid var(--line);border-radius:.6rem;
+  padding:1.1rem;text-decoration:none;color:var(--ink);transition:.15s
+}
+.card:hover{border-color:var(--accent-dim);transform:translateY(-2px)}
+.card h3{margin:.1rem 0 .4rem;color:var(--accent)}
+.card p{margin:0;color:var(--dim);font-size:.88rem}
+.card .who{font-size:.72rem;color:var(--amber);text-transform:uppercase;letter-spacing:.08em}
+figure{margin:1.5rem 0;text-align:center}
+figure svg{max-width:100%;height:auto;border:1px solid var(--line);border-radius:.5rem;background:#120e05}
+figcaption{color:var(--dim);font-size:.82rem;margin-top:.5rem;text-align:left}
+.gotcha{border:1px solid var(--line);border-radius:.5rem;margin:.6rem 0;background:var(--panel)}
+.gotcha summary{cursor:pointer;padding:.7rem 1rem;color:var(--warn)}
+.gotcha .body{padding:0 1rem 1rem;border-top:1px solid var(--line)}
+.top{
+  position:fixed;right:1rem;bottom:1rem;background:var(--panel-2);border:1px solid var(--line);
+  color:var(--dim);border-radius:.5rem;padding:.5rem .7rem;text-decoration:none;font-size:.8rem;
+  opacity:0;pointer-events:none;transition:.2s;z-index:30
+}
+.top.show{opacity:1;pointer-events:auto}
+footer.site{border-top:1px solid var(--line);margin-top:3rem;padding-top:1rem;color:var(--dim);font-size:.8rem}
+.offline-note{color:var(--dim);font-size:.78rem;margin-top:.4rem}
+</style>
+</head>
+<body>
+<header class="site"><div class="wrap">
+<a class="brand" href="index.html">MeshCore Config</a>
+<span class="tag">Greyrock Labs</span>
+</div></header>
+<main class="wrap">
+<a href="index.html" style="color:var(--dim);text-decoration:none">&larr; Все инструкции</a>
+<details class="toc" open><summary>Содержание</summary><ol><li><a href="#что-уже-работает-а-что-ещё-нет">Что уже работает, а что ещё нет</a></li><li><a href="#расклад-железа-5-нод">Расклад железа (5 нод)</a></li><li class="lvl3"><a href="#10-подготовка-cli-на-компьютере-windows">1.0 Подготовка: CLI на компьютере (Windows)</a></li><li class="lvl3"><a href="#11-прошить">1.1 Прошить</a></li><li class="lvl3"><a href="#12-поставить-одинаковое-радио-на-всех-пяти">1.2 Поставить одинаковое радио на ВСЕХ ПЯТИ</a></li><li class="lvl3"><a href="#13-дать-имена">1.3 Дать имена</a></li><li class="lvl3"><a href="#14-сменить-пароли-на-трёх-репитерах">1.4 Сменить пароли на трёх репитерах</a></li><li class="lvl3"><a href="#15-синхронизировать-часы">1.5 Синхронизировать часы</a></li><li class="lvl3"><a href="#16-прописать-координаты-базе">1.6 Прописать координаты базе</a></li><li class="lvl3"><a href="#17-познакомить-ноды-между-собой">1.7 Познакомить ноды между собой</a></li><li class="lvl3"><a href="#18-зарядить-и-собрать">1.8 Зарядить и собрать</a></li><li class="lvl3"><a href="#21-распайка">2.1 Распайка</a></li><li class="lvl3"><a href="#22-первое-подключение">2.2 Первое подключение</a></li><li class="lvl3"><a href="#23-пресеты-поставить-радио-с-флиппера">2.3 Пресеты — поставить радио с флиппера</a></li><li class="lvl3"><a href="#24-генеральная-репетиция-дома-не-пропускай">2.4 Генеральная репетиция дома (не пропускай!)</a></li><li class="lvl3"><a href="#что-в-сумке">Что в сумке</a></li><li class="lvl3"><a href="#шаг-1-ставим-base">Шаг 1. Ставим BASE</a></li><li class="lvl3"><a href="#шаг-2-раскидываем-rep1-и-rep2">Шаг 2. Раскидываем REP1 и REP2</a></li><li class="lvl3"><a href="#шаг-3-запускаем-логгер">Шаг 3. Запускаем логгер</a></li><li class="lvl3"><a href="#шаг-4-прогон-по-площадке">Шаг 4. Прогон по площадке</a></li><li class="lvl3"><a href="#шаг-5-точечные-трейсы-здесь-нужен-телефон">Шаг 5. Точечные трейсы — здесь нужен телефон</a></li><li class="lvl3"><a href="#шаг-6-спектр-флиппером">Шаг 6. Спектр Флиппером</a></li><li class="lvl3"><a href="#шаг-7-сворачиваемся">Шаг 7. Сворачиваемся</a></li><li><a href="#критерии-приёмки-что-считать-сеть-готова">Критерии приёмки — что считать «сеть готова»</a></li><li><a href="#что-потом-с-данными">Что потом с данными</a></li><li><a href="#флиппер-и-ноды-по-проводу">Флиппер и ноды по проводу</a></li><li><a href="#ноды-и-радио">Ноды и радио</a></li><li><a href="#windows-настройка-нод-дома">Windows (настройка нод дома)</a></li><li><a href="#мини-словарик">Мини-словарик</a></li></ol></details>
+<h1 id="тест-меша-meshcore-перед-фестом-пошаговая-инструкция">Тест меша MeshCore перед фестом — пошаговая инструкция 🐢</h1><p><strong>Три части: что делать дома в нодах → что делать дома с флиппером → что делать в поле.</strong> Ноута и телефона в поле нет: всё крутится с одного флиппера.</p><div class="callout tip"><p>💡 Это версия под <strong>флиппер</strong>. Методика та же, что была с телефонами, — поменялся только инструмент оператора. У Марка остаётся телефон, и его инструкция не изменилась: <a href="guide-mark.html">гайд Марка</a>.</p></div><p>---</p><h2 id="что-уже-работает-а-что-ещё-нет">Что уже работает, а что ещё нет</h2><p>Честно, чтобы в поле не было сюрпризов.</p><table><thead><tr><th>Функция</th><th>Состояние</th></tr></thead><tbody><tr><td>Подключение к ноде по UART, self-info, модель и версия</td><td>✅ работает</td></tr><tr><td>Логгер: <code>rx_log.csv</code> с SNR/RSSI на SD</td><td>✅ работает</td></tr><tr><td>Мессенджер: контакты, приём сообщений</td><td>✅ работает</td></tr><tr><td>Пресеты радио, применение и проверка</td><td>✅ логика готова</td></tr><tr><td><code>telemetry.csv</code>, <code>ping.csv</code>, <code>events.csv</code></td><td>⏳ в работе</td></tr><tr><td>Две ноды одновременно (второй UART)</td><td>⏳ в работе</td></tr><tr><td>Кнопка = метка точки, пороги 🟢🔴 на экране</td><td>⏳ в работе</td></tr></tbody></table><div class="callout warning"><p>⚠️ Пункты со значком ⏳ пока не собраны. Если выезжаешь сегодня — рассчитывай на <code>rx_log.csv</code> с одной ноды и на ручные заметки вместо меток.</p></div><p>---</p><h2 id="расклад-железа-5-нод">Расклад железа (5 нод)</h2><table><thead><tr><th>#</th><th>Нода</th><th>Роль</th><th>Прошивка</th><th>GPS+экран</th><th>Кто рулит</th></tr></thead><tbody><tr><td>1</td><td><strong>V4</strong> (ESP32-S3)</td><td>🎒 <strong>ROVER-S</strong> — логгер A</td><td>наша UART-companion</td><td>✅</td><td>Флиппер, LPUART (15/16)</td></tr><tr><td>2</td><td><strong>T114</strong></td><td>🎒 <strong>POCKET-S</strong> — логгер B</td><td>наша UART-companion</td><td>✅</td><td>Флиппер, USART (13/14)</td></tr><tr><td>3</td><td><strong>T114</strong></td><td>🏠 <strong>BASE</strong> — якорь, высоко</td><td>стоковый <code>repeater</code></td><td>—</td><td>по радио / USB</td></tr><tr><td>4</td><td><strong>T114</strong></td><td>📡 <strong>REP1</strong> — скаут-ретранслятор</td><td>стоковый <code>repeater</code></td><td>✅</td><td>по радио / USB</td></tr><tr><td>5</td><td><strong>T114</strong></td><td>📡 <strong>REP2</strong> — ретранслятор</td><td>стоковый <code>repeater</code></td><td>—</td><td>по радио / USB</td></tr></tbody></table><p><strong>Почему теперь так.</strong> Раньше V4 был единственным логгером, потому что только у него есть WiFi, а телефон умел говорить с нодой лишь по TCP. Флипперу WiFi не нужен — он говорит с обеими нодами по проводу. Отсюда два следствия:</p><ul><li><strong>V4 больше не поднимает WiFi-точку.</strong> Прошивка <code>companion_radio_wifi</code> не нужна,</li></ul><p>  и это заметно меньше жора — повербанк перестаёт быть обязательным.</p><ul><li><strong>Обе ноды слушают эфир одновременно</strong>, в одной точке, в одну секунду. Это даёт</li></ul><p>  честное <strong>A/B-сравнение V4 против T114</strong> — раньше так было нельзя.</p><p>GPS ставим туда, где он реально нужен: на обоих роверов и на REP1 — его ты будешь переставлять. База стоит на известной точке, ей координаты пропишем руками.</p><p>---</p><h1 id="часть-1-дома-в-нодах">ЧАСТЬ 1. ДОМА — В НОДАХ 🔧</h1><p>Делается один раз, за столом, с компьютера по USB.</p><div class="callout warning"><p>⚠️ <strong>Разнеси ноды на 2–3 метра, пока настраиваешь.</strong> Пять передатчиков по 20+ dBm в 20 см друг от друга перегружают приёмники, и ты словишь странные «глюки связи», которых в поле не будет.</p></div><h3 id="10-подготовка-cli-на-компьютере-windows">1.0 Подготовка: CLI на компьютере (Windows)</h3><p><code>pipx</code> ставить <strong>не надо</strong> — обычного <code>pip</code> хватает.</p><pre><code>py --version
+py -m pip install --user meshcore-cli
+meshcli -v</code></pre><p>Если <code>meshcli</code> не находится — папка <code>Scripts</code> не попала в PATH. Не воюй, запускай через модуль:</p><pre><code>py -m meshcore_cli -v</code></pre><p><strong>Ищем COM-порт ноды:</strong></p><pre><code>meshcli -l</code></pre><ul><li>V4 не появился → доставь драйвер <strong>CP210x</strong>.</li><li>T114 на nRF52840 определяется сам.</li></ul><div class="callout warning"><p>⚠️ Если домашняя папка с кириллицей и полезут ошибки кодировки — сделай venv по латинскому пути: <code>py -m venv C:\mesh\venv</code>, затем <code>C:\mesh\venv\Scripts\activate</code>.</p></div><h3 id="11-прошить">1.1 Прошить</h3><p>Здесь два разных флешера, и перепутать их — самая обидная ошибка этого шага.</p><table><thead><tr><th>Ноды</th><th>Флешер</th><th>Сборка</th></tr></thead><tbody><tr><td><strong>Твои два ровера</strong> (V4 + T114)</td><td><a href="https://hleserg.github.io/meshcore-node-fw">hleserg.github.io/meshcore-node-fw</a></td><td><strong>UART-companion</strong></td></tr><tr><td><strong>Три репитера</strong></td><td><a href="https://flasher.meshcore.io">flasher.meshcore.io</a></td><td>стоковый <code>repeater</code></td></tr></tbody></table><div class="callout danger"><p>🚨 <strong>Роверам нужна именно наша UART-сборка.</strong> Стоковый companion отдаёт протокол в USB-CDC или BLE, а флиппер умеет только аппаратный UART и до него не достучится. На T114 без этого нода будет молчать намертво.</p></div><h3 id="12-поставить-одинаковое-радио-на-всех-пяти">1.2 Поставить одинаковое радио на ВСЕХ ПЯТИ</h3><p>Самый частый и самый обидный косяк: если freq/BW/SF/CR не совпадают — ноды физически не слышат друг друга, и ты полдня ищешь несуществующую поломку.</p><pre><code>freq = 869.525 МГц   BW = 250 кГц   SF = 11   CR = 5</code></pre><p>Через CLI, подставь свой COM-порт:</p><pre><code>meshcli -s COM5 set radio 869.525,250,11,5
+meshcli -s COM5 set name ROVER-S</code></pre><p>Репитеры настраиваются своим CLI по USB: <code>meshcli -s COM5 -r</code>, дальше <code>set ...</code>.</p><div class="callout tip"><p>💡 Синтаксис <code>set</code> немного разнится между версиями прошивки. Не гадай — набери <strong><code>set help</code></strong> в CLI ноды и посмотри список.</p></div><div class="callout success"><p>✅ <strong>Роверам радио можно ставить и с флиппера</strong> — это быстрее и без компьютера. Как: раздел «Пресеты» ниже, пункт 2.3.</p></div><h3 id="13-дать-имена">1.3 Дать имена</h3><p>Твои пять: <code>BASE</code>, <code>REP1</code>, <code>REP2</code>, <code>ROVER-S</code>, <code>POCKET-S</code>. Ровно этими именами ты потом будешь пинговать, и они попадут в CSV. Наклей стикеры на корпуса — в поле спасает.</p><div class="callout"><p>🤝 <strong>Мы объединяемся с Марком, в сети будет 8 нод.</strong> Он настраивает свои три по <a href="guide-mark.html">отдельной инструкции</a>: <code>ROVER-M</code>, <code>POCKET-M</code> и <code>REP3</code>. <strong>Радио-настройки обязаны совпадать</strong> у обоих комплектов до последней цифры. Контактами обменяйтесь дома: <code>export_contact</code> выдаёт URI, его можно переслать.</p></div><h3 id="14-сменить-пароли-на-трёх-репитерах">1.4 Сменить пароли на трёх репитерах</h3><p>У репитера есть админ-CLI по радио, и дефолтный пароль общеизвестен. Ставь свой — иначе любой желающий на фесте перенастроит тебе сеть. Запиши пароли в телефон.</p><h3 id="15-синхронизировать-часы">1.5 Синхронизировать часы</h3><pre><code>meshcli -s COM5 clock sync</code></pre><p>Без этого метки времени разъедутся, и сопоставить твои данные с данными Марка не выйдет.</p><h3 id="16-прописать-координаты-базе">1.6 Прописать координаты базе</h3><p>BASE поставишь в известную точку — вбей её широту/долготу заранее (<code>set lat</code>, <code>set lon</code>).</p><h3 id="17-познакомить-ноды-между-собой">1.7 Познакомить ноды между собой</h3><p>Включи все пять рядом (помним про 2–3 метра) и дай каждой отправить advert. Проверь, что каждая видит остальных:</p><pre><code>meshcli -s COM5 contacts</code></pre><p><strong>Зачем:</strong> в поле ты не хочешь стоять и ждать, пока ноды обнаружат друг друга.</p><h3 id="18-зарядить-и-собрать">1.8 Зарядить и собрать</h3><p>Всё под завязку. <strong>V4 без WiFi-точки жрёт заметно меньше, чем раньше</strong> — повербанк теперь страховка, а не обязательное условие.</p><p><strong>✅ Чек-лист части 1:</strong> прошито 5/5 (роверы — нашей UART-сборкой!) · радио одинаковое · имена заданы · пароли сменены · часы синхронизированы · координаты базы вбиты · контакты видны · всё заряжено.</p><p>---</p><h1 id="часть-2-дома-собрать-риг">ЧАСТЬ 2. ДОМА — СОБРАТЬ РИГ 🔌</h1><p>Termux, WiFi-точки, IP-адресов и TCP больше нет. Вместо них — три провода на ноду и одно меню.</p><h3 id="21-распайка">2.1 Распайка</h3><figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 420" role="img" aria-label="Схема подключения двух нод к флипперу">
+  <style>
+    .box{fill:#151918;stroke:#2a312f;stroke-width:2}
+    .lbl{fill:#d7e0dc;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:14px}
+    .sub{fill:#8fa39b;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+    .pin{fill:#ffb340;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+    .tx{stroke:#5ef2a4;stroke-width:2.5;fill:none}
+    .rx{stroke:#7fd6ff;stroke-width:2.5;fill:none}
+    .gnd{stroke:#8fa39b;stroke-width:2.5;fill:none;stroke-dasharray:5 4}
+    .cap{fill:#8fa39b;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  </style>
+  <rect width="700" height="420" fill="#0d0f0f"/>
+
+  <!-- Flipper -->
+  <rect class="box" x="30" y="120" width="170" height="180" rx="10"/>
+  <text class="lbl" x="48" y="150">Flipper Zero</text>
+  <text class="sub" x="48" y="170">гребёнка GPIO</text>
+
+  <text class="pin" x="150" y="200">13 TX</text>
+  <text class="pin" x="150" y="222">14 RX</text>
+  <text class="pin" x="150" y="252">15 TX</text>
+  <text class="pin" x="150" y="274">16 RX</text>
+  <text class="sub" x="48" y="200">USART</text>
+  <text class="sub" x="48" y="252">LPUART</text>
+  <text class="pin" x="48" y="296">18 GND</text>
+
+  <!-- T114 -->
+  <rect class="box" x="440" y="60" width="230" height="130" rx="10"/>
+  <text class="lbl" x="458" y="88">Heltec T114 · POCKET-S</text>
+  <text class="sub" x="458" y="107">хедер P1</text>
+  <text class="pin" x="458" y="132">GPIO9  = UART1_RX</text>
+  <text class="pin" x="458" y="152">GPIO10 = UART1_TX</text>
+  <text class="pin" x="458" y="172">P1·4   = GND</text>
+
+  <!-- V4 -->
+  <rect class="box" x="440" y="240" width="230" height="130" rx="10"/>
+  <text class="lbl" x="458" y="268">Heltec V4 · ROVER-S</text>
+  <text class="sub" x="458" y="287">хедер J3</text>
+  <text class="pin" x="458" y="312">GPIO47 = RX</text>
+  <text class="pin" x="458" y="332">GPIO48 = TX</text>
+  <text class="pin" x="458" y="352">J2·1   = GND</text>
+
+  <!-- T114 links: 13 -> RX(9), TX(10) -> 14 -->
+  <path class="tx" d="M205 196 C 320 196, 330 128, 435 128"/>
+  <path class="rx" d="M205 218 C 330 218, 340 148, 435 148"/>
+  <path class="gnd" d="M205 292 C 300 292, 360 172, 435 172"/>
+
+  <!-- V4 links: 15 -> RX(47), TX(48) -> 16 -->
+  <path class="tx" d="M205 248 C 320 248, 330 308, 435 308"/>
+  <path class="rx" d="M205 270 C 330 270, 340 328, 435 328"/>
+  <path class="gnd" d="M205 292 C 320 292, 360 348, 435 348"/>
+
+  <!-- legend -->
+  <line class="tx" x1="40" y1="345" x2="80" y2="345"/>
+  <text class="cap" x="88" y="349">выход флиппера → вход ноды (TX → RX)</text>
+  <line class="rx" x1="40" y1="368" x2="80" y2="368"/>
+  <text class="cap" x="88" y="372">выход ноды → вход флиппера (TX → RX)</text>
+  <line class="gnd" x1="40" y1="391" x2="80" y2="391"/>
+  <text class="cap" x="88" y="395">общая земля — обязательно</text>
+
+  <text class="cap" x="440" y="395">Питание нод — своё. От флиппера только GND и данные.</text>
+  <text class="cap" x="440" y="412">TX↔RX перекрёстно: TX в TX не работает никогда.</text>
+</svg><figcaption>Две ноды на двух портах флиппера. TX одной стороны идёт в RX другой — перекрёстно.</figcaption></figure><table><thead><tr><th>Нода</th><th>Порт флиппера</th><th>Флиппер TX → нода RX</th><th>Нода TX → флиппер RX</th><th>GND</th></tr></thead><tbody><tr><td><strong>T114</strong> (POCKET-S)</td><td>USART</td><td>пин <strong>13</strong> → GPIO9 (P1)</td><td>GPIO10 (P1) → пин <strong>14</strong></td><td>P1·4</td></tr><tr><td><strong>V4</strong> (ROVER-S)</td><td>LPUART</td><td>пин <strong>15</strong> → GPIO47 (J3)</td><td>GPIO48 (J3) → пин <strong>16</strong></td><td>J2·1</td></tr></tbody></table><div class="callout danger"><p>🚨 <strong>Питание нод — своё, не от флиппера.</strong> Только GND и две линии данных. Флиппер не рассчитан тянуть LoRa-ноду через передачу, а просадка питания посреди прогулки стоит тебе всей сессии.</p></div><div class="callout warning"><p>⚠️ <strong>TX↔RX перекрёстно.</strong> Выход одной стороны идёт во вход другой. Соединить TX с TX — самая частая причина «нода молчит», и выглядит она в точности как «нода сдохла».</p></div><h3 id="22-первое-подключение">2.2 Первое подключение</h3><ol><li>Воткни ноду, включи флиппер.</li><li><strong>Apps → GPIO → MeshCore Config</strong>.</li><li>Выбери <strong>Connect</strong>, нажми <strong>OK</strong>.</li></ol><figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 300" role="img" aria-label="Экран подключения к ноде">
+  <style>
+    .lcd{fill:#ff9a1f}
+    .px{fill:#1a1205;font-family:ui-monospace,Menlo,Consolas,monospace}
+    .b{font-weight:700}
+    .ann{fill:#8fa39b;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+    .lead{stroke:#5ef2a4;stroke-width:1.5;fill:none}
+    .dot{fill:#5ef2a4}
+  </style>
+  <rect width="520" height="300" fill="#120e05"/>
+
+  <!-- bezel -->
+  <rect x="26" y="28" width="276" height="156" rx="8" fill="#2a2113"/>
+  <!-- 128x64 at 2x -->
+  <rect class="lcd" x="34" y="36" width="256" height="128"/>
+
+  <text class="px b" x="42" y="54" font-size="14">Heltec T114</text>
+  <text class="px" x="42" y="74" font-size="12">fw v1.12.0 (v10)</text>
+  <text class="px" x="42" y="92" font-size="12">name: ROVER-S</text>
+  <text class="px" x="42" y="110" font-size="12">freq: 869.525 MHz</text>
+  <text class="px" x="42" y="128" font-size="12">bw 250 kHz sf 11 cr 5</text>
+  <text class="px" x="42" y="152" font-size="11">tx 22 dBm (max 30)</text>
+
+  <text class="ann" x="26" y="204">128 × 64, оранжевая подсветка — как на самом флиппере</text>
+
+  <!-- annotations -->
+  <line class="lead" x1="300" y1="52" x2="352" y2="52"/><circle class="dot" cx="300" cy="52" r="3"/>
+  <text class="ann" x="358" y="56">модель ноды</text>
+
+  <line class="lead" x1="300" y1="72" x2="352" y2="72"/><circle class="dot" cx="300" cy="72" r="3"/>
+  <text class="ann" x="358" y="76">версия прошивки</text>
+
+  <line class="lead" x1="300" y1="108" x2="352" y2="108"/><circle class="dot" cx="300" cy="108" r="3"/>
+  <text class="ann" x="358" y="112">текущее радио —</text>
+  <text class="ann" x="358" y="128">сверь с 869.525</text>
+
+  <text class="ann" x="26" y="236">Back — назад в меню.  Если вместо этого «No reply from</text>
+  <text class="ann" x="26" y="254">the node» — смотри «Грабли»: TX/RX, прошивка, пины.</text>
+</svg><figcaption>Экран после успешного подключения: модель ноды, версия прошивки, имя и текущее радио.</figcaption></figure><p>Успех выглядит так: на экране модель (<code>Heltec T114</code> или <code>Heltec V4</code>), версия прошивки, имя ноды и радио-настройки.</p><p>Если вместо этого написано <strong>«No reply from the node»</strong> — иди в раздел «Грабли».</p><div class="callout tip"><p>💡 Пункт <strong>Serial log</strong> в главном меню показывает сырой обмен байтами. Если подключение не идёт — открой его: пусто = до флиппера вообще ничего не дошло, мусор = не тот бод или перепутаны TX/RX.</p></div><h3 id="23-пресеты-поставить-радио-с-флиппера">2.3 Пресеты — поставить радио с флиппера</h3><p>Вместо того чтобы гонять <code>set radio</code> по USB на каждую ноду, можно применить пресет.</p><ol><li><strong>Presets</strong> в главном меню.</li><li>Первым в списке — встроенный <strong>City/daily</strong> (868.731 / 62.5 / SF7 / CR7).</li></ol><p>   Он вшит в приложение и есть всегда, даже без SD-карты.</p><ol><li>Свои пресеты клади на SD в <code>/ext/apps_data/meshcore_cfg/presets/*.json</code>.</li></ol><p>   Для феста нужен вот такой:</p><pre><code>{
+  "name": "Fest-869",
+  "freq_mhz": 869.525,
+  "bw_khz": 250,
+  "sf": 11,
+  "cr": 5,
+  "path_hash_bytes": 1
+}</code></pre><ol><li>Выбрал пресет → <strong>OK</strong> → приложение шлёт настройки и <strong>перечитывает их обратно</strong>,</li></ol><p>   показывая галочки по каждому полю. Галочка означает «нода подтвердила», а не    «мы отправили».</p><div class="callout success"><p>✅ <strong>Save from node</strong> делает обратное: считывает конфиг воткнутой ноды в новый <code>*.json</code>. Настроил одну ноду как надо — сохрани и клонируй на остальные.</p></div><h3 id="24-генеральная-репетиция-дома-не-пропускай">2.4 Генеральная репетиция дома (не пропускай!)</h3><ol><li>Воткни обе ноды, зайди в <strong>Logger</strong>, нажми <strong>OK</strong>.</li><li>Походи по квартире 2–3 минуты.</li><li>Вернись, нажми <strong>Back</strong> — логгер закроет файлы.</li><li>Вынь SD, посмотри <code>/ext/apps_data/meshcore_cfg/logs/&lt;дата-время&gt;/rx_log.csv</code>.</li></ol><p>Успех: в файле есть строки, в колонках <code>snr</code> и <code>rssi</code> — числа.</p><div class="callout danger"><p>🚨 <strong>Если <code>rx_log.csv</code> только с заголовком и без строк</strong> — нода не отдаёт rx-логи. Почти всегда это не та прошивка. Перешей нашей UART-сборкой.</p></div><p><strong>✅ Чек-лист части 2:</strong> обе ноды подключаются · Connect показывает модель и версию · радио выставлено и подтверждено галочками · пробный лог пишется на SD.</p><p>---</p><h1 id="часть-3-в-поле">ЧАСТЬ 3. В ПОЛЕ 🏕️</h1><h3 id="что-в-сумке">Что в сумке</h3><p>5 нод (подписанных) · <strong>флиппер с картой памяти</strong> · повербанки для нод · кабели · телефон (для трейсов, см. Шаг 5) · скотч/стяжки/пакеты от дождя · пароли репитеров.</p><p>---</p><h3 id="шаг-1-ставим-base">Шаг 1. Ставим BASE</h3><p>Самая высокая доступная точка: крыша, мачта, дерево, борт фуры. <strong>Высота решает больше, чем мощность</strong> — подъём на 3 метра часто даёт больше, чем любые пляски с антенной. Включил → убедился, что живая.</p><h3 id="шаг-2-раскидываем-rep1-и-rep2">Шаг 2. Раскидываем REP1 и REP2</h3><p>Ставь в кандидатные точки: между базой и дальним краем площадки, за препятствиями (сцена, холм, постройки) — там, где прямой луч до базы не проходит. REP1 с GPS+экраном — его удобно переставлять и сверять позицию по экрану.</p><h3 id="шаг-3-запускаем-логгер">Шаг 3. Запускаем логгер</h3><p>Никаких команд. <strong>Apps → GPIO → MeshCore Config → Logger → OK.</strong></p><figure><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 300" role="img" aria-label="Экран логгера">
+  <style>
+    .lcd{fill:#ff9a1f}
+    .px{fill:#1a1205;font-family:ui-monospace,Menlo,Consolas,monospace}
+    .b{font-weight:700}
+    .ann{fill:#8fa39b;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:13px}
+    .lead{stroke:#5ef2a4;stroke-width:1.5;fill:none}
+    .dot{fill:#5ef2a4}
+  </style>
+  <rect width="520" height="300" fill="#120e05"/>
+
+  <rect x="26" y="28" width="276" height="156" rx="8" fill="#2a2113"/>
+  <rect class="lcd" x="34" y="36" width="256" height="128"/>
+
+  <text class="px b" x="42" y="56" font-size="15">Logging</text>
+  <text class="px" x="150" y="56" font-size="12">ROVER-S</text>
+  <text class="px" x="42" y="84" font-size="12">packets: 137</text>
+  <text class="px" x="42" y="108" font-size="12">SNR 8.25  RSSI -74</text>
+  <text class="px" x="42" y="132" font-size="12">20260723-141207</text>
+  <text class="px" x="42" y="156" font-size="11">Back = stop</text>
+
+  <text class="ann" x="26" y="204">Счётчик растёт — нода слышит эфир и строки пишутся на SD</text>
+
+  <line class="lead" x1="300" y1="82" x2="352" y2="82"/><circle class="dot" cx="300" cy="82" r="3"/>
+  <text class="ann" x="358" y="86">принято пакетов</text>
+
+  <line class="lead" x1="300" y1="106" x2="352" y2="106"/><circle class="dot" cx="300" cy="106" r="3"/>
+  <text class="ann" x="358" y="110">последний замер:</text>
+  <text class="ann" x="358" y="126">SNR ≥ +5 dB — норма</text>
+
+  <line class="lead" x1="300" y1="130" x2="352" y2="130"/><circle class="dot" cx="300" cy="130" r="3"/>
+  <text class="ann" x="358" y="134">папка сессии на SD</text>
+
+  <text class="ann" x="26" y="236">Back закрывает файлы. Каждая строка сбрасывается на карту</text>
+  <text class="ann" x="26" y="254">сразу — выдернешь питание, потеряешь максимум одну.</text>
+</svg><figcaption>Экран логгера в работе. Счётчик пакетов растёт — значит нода слышит эфир.</figcaption></figure><p>На экране: имя ноды, счётчик принятых пакетов, последние SNR и RSSI, имя папки сессии. Счётчик растёт — всё пишется.</p><div class="callout tip"><p>💡 <strong>Back останавливает логгер и закрывает файлы.</strong> Не выдёргивай питание посреди сессии просто так — хотя каждая строка и сбрасывается на карту сразу, так что даже в худшем случае ты потеряешь максимум одну.</p></div><h3 id="шаг-4-прогон-по-площадке">Шаг 4. Прогон по площадке</h3><p>Идёшь и <strong>не спешишь</strong> — стой на каждой точке 30–60 секунд, чтобы набралось несколько замеров по каждой ноде.</p><p>Куда обязательно дойти:</p><ul><li>по периметру площадки, включая самый дальний угол;</li><li>где будут сцены и лагерь;</li><li>в низины и за постройки (это worst case);</li><li>на въезд/парковку.</li></ul><p><strong>Метки точек.</strong> Раньше это было сообщение <code>TOCHKA scene2</code> с телефона. Теперь — кнопка на флиппере: нажатие ставит в <code>events.csv</code> строку с типом <code>mark</code> и временем.</p><div class="callout warning"><p>⚠️ Кнопка-метка ещё не собрана (см. таблицу в начале). Пока помечай точки голосовой заметкой или бумажкой — время потом сойдётся с CSV.</p></div><p><strong>Главный бонус этой схемы:</strong> обе ноды слушают одновременно, в одной точке. В CSV строки помечены колонками <code>node</code> / <code>role</code> / <code>hw</code>, так что V4 и T114 в одном и том же месте сравниваются напрямую — раньше такого сравнения получить было нельзя.</p><h3 id="шаг-5-точечные-трейсы-здесь-нужен-телефон">Шаг 5. Точечные трейсы — здесь нужен телефон</h3><div class="callout danger"><p>🚨 <strong>Честно: флиппер этого не умеет.</strong> Trace Path — пер-хоп SNR по каждому прыжку — это фича мобильного приложения MeshCore, и в companion-протоколе её нет в том виде, в каком её показывает приложение.</p><p>В ключевых точках доставай телефон, цепляйся по BLE к любой companion-ноде и делай <strong>Tools → Trace Path</strong> до каждой фиксированной ноды. Это единственный шаг, где телефон всё ещё обязателен.</p></div><p>Смотришь SNR и время отклика по каждому хопу — сразу видно, какое звено слабое и реально ли работает мультихоп через репитеры.</p><h3 id="шаг-6-спектр-флиппером">Шаг 6. Спектр Флиппером</h3><p>Выйди из приложения (<strong>Back</strong> до главного меню флиппера) → <strong>Sub-GHz → Frequency Analyzer</strong>, крути вокруг 868. Смотри в местах скопления техники: генераторы, звук, LED-экраны, Starlink. LoRa он не декодирует, но «есть тут помеха и насколько мощная» показывает честно. Скриншотишь.</p><h3 id="шаг-7-сворачиваемся">Шаг 7. Сворачиваемся</h3><p><strong>Back</strong> в логгере — файлы закрыты. Вынь SD, скопируй папку <code>/ext/apps_data/meshcore_cfg/logs/&lt;сессия&gt;/</code> на компьютер.</p><p>---</p><h2 id="критерии-приёмки-что-считать-сеть-готова">Критерии приёмки — что считать «сеть готова»</h2><table><thead><tr><th>Метрика</th><th>Где смотреть</th><th>Порог</th></tr></thead><tbody><tr><td>SNR до ближайшей фикс-ноды в любой точке</td><td><code>rx_log.csv</code>, трейсы</td><td><strong>≥ +5 dB</strong></td></tr><tr><td>Потери пингов</td><td><code>ping.csv</code>, колонка <code>ok</code></td><td><strong>&lt; 5%</strong></td></tr><tr><td>Мультихоп работает</td><td>Trace Path через REP (телефон)</td><td>путь реально строится</td></tr><tr><td>Батарея базы/репитеров</td><td><code>telemetry.csv</code></td><td>хватает на весь день</td></tr><tr><td>Ошибки приёма</td><td><code>telemetry.csv</code>, <code>recv_errors</code></td><td>не растут лавиной</td></tr></tbody></table><div class="callout danger"><p>🚨 <strong>Главная поправка на реальность.</strong> Ты тестируешь пустую площадку, а фест — это тысячи человеческих тел, и они <strong>очень хорошо поглощают 868 МГц</strong>. Плюс генераторы, звук, толпа с телефонами. Закладывай запас: если на пустом поле SNR впритык 0 dB — на фесте эта связь ляжет. <strong>Целься в +5…+10 dB запаса</strong> либо ставь ещё один репитер.</p></div><p>---</p><h2 id="что-потом-с-данными">Что потом с данными</h2><p><strong>CSV с флиппера совместимы с <code>meshlog.py</code></strong> — колонки те же, в том же порядке, просто в конце строки добавлены <code>node,role,hw</code>. Значит твои логи и логи Марка (он пишет с телефона) сводятся вместе ровно как раньше, и совместная Часть 3 с фазами никуда не делась.</p><ul><li><code>rx_log.csv</code> — SNR/RSSI каждого услышанного пакета + координаты → <strong>карта покрытия</strong></li></ul><p>  (закинуть в Google Earth / My Maps по колонкам <code>lat</code>/<code>lon</code>).</p><ul><li><code>ping.csv</code> — успех/промах и RTT по каждой ноде → <strong>процент потерь и задержка</strong>.</li><li><code>telemetry.csv</code> — батарея, шумовой пол, счётчики → <strong>кривая разряда на день</strong>.</li><li><code>events.csv</code> — advert-ы, сообщения, твои метки точек.</li></ul><div class="callout tip"><p>💡 Координаты флиппер берёт <strong>из ноды</strong>, своего GPS у него нет. Нет позиции в ноде — колонки <code>lat</code>/<code>lon</code>/<code>acc</code> останутся пустыми, всё остальное пишется.</p></div><p>---</p><h1 id="грабли-все-кочки-на-которые-мы-уже-наступили">🪤 ГРАБЛИ — все кочки, на которые мы уже наступили</h1><p>Ищи по симптому.</p><h2 id="флиппер-и-ноды-по-проводу">Флиппер и ноды по проводу</h2><details class="gotcha"><summary>Нода молчит: «No reply from the node»</summary><div class="body"><p>Три причины, по убыванию частоты:</p><ol><li><strong>Перепутаны TX и RX.</strong> Выход одной стороны идёт во вход другой:</li></ol><p>   флиппер 13 → нода RX, нода TX → флиппер 14.</p><ol><li><strong>Не та прошивка.</strong> Стоковый companion отдаёт протокол в USB-CDC или BLE.</li></ol><p>   Нужна наша UART-сборка с <a href="https://hleserg.github.io/meshcore-node-fw">hleserg.github.io/meshcore-node-fw</a>.</p><ol><li><strong>Не тот пин.</strong> На T114 нумерация на шелкографии не совпадает с нумерацией</li></ol><p>   GPIO в Arduino. Сверяйся с таблицей распайки, а не с надписью на плате.</p></div></details><details class="gotcha"><summary>T114 молчит, а V4 на том же проводе работает</summary><div class="body"><p>На nRF52 в стоке консоль уходит только в USB-CDC — аппаратный UART не задействован. → Нужна прошивка с роутом на <code>Serial1</code>. Это и есть наша UART-сборка.</p></div></details><details class="gotcha"><summary>На экране «Noise on the line» или в Serial log мусор</summary><div class="body"><p>До флиппера что-то доходит, но это не кадры. → Не тот бод (нужен 115200) либо всё-таки перепутаны TX/RX.</p></div></details><details class="gotcha"><summary><code>rx_log.csv</code> есть, но в нём только заголовок</summary><div class="body"><p>Нода не отдаёт rx-логи в компаньон. → Перешей ноду нашей UART-сборкой посвежее.</p></div></details><details class="gotcha"><summary>Приложение пишет «Cannot take the USART»</summary><div class="body"><p>Порт занят другим приложением флиппера. → Выйди из всех приложений и зайди в MeshCore Config заново.</p></div></details><details class="gotcha"><summary>Логи не появляются на карте вообще</summary><div class="body"><p>→ Проверь, что SD-карта вставлена и смонтирована: на флиппере   <strong>Settings → Storage</strong> должен показывать SD.</p></div></details><h2 id="ноды-и-радио">Ноды и радио</h2><details class="gotcha"><summary>Ноды не видят друг друга, хотя всё включено</summary><div class="body"><p>99% случаев — <strong>разные радио-настройки</strong>. freq/BW/SF/CR должны совпадать на всех пяти до последней цифры. → Сверь <code>meshcli -s COMx infos</code> на каждой. Или зайди в <strong>Connect</strong> на флиппере —   он показывает текущее радио ноды прямо на экране.</p></div></details><details class="gotcha"><summary>На столе связь «глючит», а в поле всё нормально</summary><div class="body"><p>Пять передатчиков по 20+ dBm в 20 см друг от друга перегружают приёмники. → При настройке разноси ноды на 2–3 метра.</p></div></details><details class="gotcha"><summary><code>set radio ...</code> ругается на синтаксис</summary><div class="body"><p>Синтаксис <code>set</code> слегка разнится между версиями прошивки. → Набери <code>set help</code> в CLI ноды. Или примени пресет с флиппера — там поля,   ошибиться негде.</p></div></details><h2 id="windows-настройка-нод-дома">Windows (настройка нод дома)</h2><details class="gotcha"><summary><code>pipx : The term 'pipx' is not recognized...</code></summary><div class="body"><p><code>pipx</code> — отдельная утилита, в Python не входит. <strong>Она и не нужна.</strong> → <code>py -m pip install --user meshcore-cli</code></p></div></details><details class="gotcha"><summary><code>meshcli</code> не находится после установки</summary><div class="body"><p>Папка <code>Scripts</code> не в PATH — классика Windows. Не воюй с PATH. → Запускай через модуль: <code>py -m meshcore_cli &lt;аргументы&gt;</code></p></div></details><details class="gotcha"><summary>Не знаешь, какой COM-порт у ноды</summary><div class="body"><p>→ <code>meshcli -l</code> покажет все serial- и BLE-устройства. → V4 не виден — доставь драйвер <strong>CP210x</strong>. T114 виден сам.</p></div></details><details class="gotcha"><summary>Странные ошибки кодировки, путь вида <code>C:\Users\й</code></summary><div class="body"><p>Кириллица в домашней папке. → <code>py -m venv C:\mesh\venv</code> → <code>C:\mesh\venv\Scripts\activate</code> → ставить туда.</p></div></details><p>---</p><h2 id="мини-словарик">Мини-словарик</h2><ul><li><strong>SNR</strong> (dB) — насколько сигнал торчит над шумом. <strong>Главная метрика.</strong> Для LoRa</li></ul><p>  минус — норма, она вытягивает сигнал из-под шума примерно до −20 dB.</p><ul><li><strong>RSSI</strong> (dBm) — просто громкость сигнала. Ближе к нулю = сильнее.</li><li><strong>RTT</strong> — время «туда-обратно» до подтверждения. <strong>ACK</strong> — само подтверждение.</li><li><strong>advert</strong> — маячок, которым нода объявляет о себе.</li><li><strong>Trace Path</strong> — MeshCore-аналог traceroute: гоняет тест-пакет по маршруту и</li></ul><p>  возвращает SNR и время по каждому прыжку. <strong>Только в мобильном приложении.</strong></p><ul><li><strong>Companion / Repeater</strong> — роли: клиент (к нему цепляется флиппер или телефон) /</li></ul><p>  ретранслятор.</p><ul><li><strong>SF / BW / CR</strong> — крутилки модема LoRa (дальность ↔ скорость). На всех нодах</li></ul><p>  сети должны совпадать.</p><ul><li><strong>Хоп</strong> — прыжок через промежуточную ноду. Мультихоп = цепочка ретрансляторов.</li><li><strong>ISM</strong> — диапазоны для связи без лицензии (868 и 433 МГц).</li><li><strong>USART / LPUART</strong> — два аппаратных последовательных порта флиппера. Пины</li></ul><p>  13/14 и 15/16 соответственно.</p>
+<footer class="site">
+<p>MeshCore Config — Greyrock Labs. Страница работает без сети: добавь её на главный экран телефона.</p>
+</footer>
+</main>
+<a class="top" href="#">↑ наверх</a>
+<script>
+// Copy button on every code block. The site is read on a phone in a field —
+// retyping a command from a screen is exactly where mistakes come from.
+document.querySelectorAll('pre').forEach(function(pre){
+  var btn = document.createElement('button');
+  btn.className = 'copy';
+  btn.type = 'button';
+  btn.textContent = 'Копировать';
+  btn.addEventListener('click', function(){
+    var text = pre.querySelector('code') ? pre.querySelector('code').innerText : pre.innerText;
+    var done = function(){
+      btn.textContent = 'Скопировано ✓';
+      btn.classList.add('done');
+      setTimeout(function(){ btn.textContent = 'Копировать'; btn.classList.remove('done'); }, 1400);
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done, fallback);
+    } else { fallback(); }
+    function fallback(){
+      // execCommand is deprecated but still the only thing that works when the
+      // page is opened from a file:// URL or an old mobile browser.
+      var ta = document.createElement('textarea');
+      ta.value = text; ta.style.position='fixed'; ta.style.opacity='0';
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); done(); } catch(e) {}
+      document.body.removeChild(ta);
+    }
+  });
+  pre.appendChild(btn);
+});
+
+// Back to top, once the reader is far enough down to want it.
+var top = document.querySelector('.top');
+if(top){
+  window.addEventListener('scroll', function(){
+    top.classList.toggle('show', window.scrollY > 700);
+  }, {passive:true});
+}
+
+// Register the service worker with an explicit relative scope: the site lives
+// on a sub-path, and an absolute scope would claim the wrong root.
+if('serviceWorker' in navigator){
+  window.addEventListener('load', function(){
+    navigator.serviceWorker.register('sw.js', {scope: './'});
+  });
+}
+</script>
+</body>
+</html>
