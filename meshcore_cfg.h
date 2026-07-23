@@ -26,6 +26,7 @@
 #include <gui/modules/loading.h>
 #include <gui/modules/submenu.h>
 #include <gui/modules/text_box.h>
+#include <gui/modules/text_input.h>
 #include <gui/modules/widget.h>
 
 #include "config/meshcore_apply.h"
@@ -48,6 +49,7 @@ typedef enum {
     MeshCoreViewWidget,
     MeshCoreViewTextBox,
     MeshCoreViewLoading,
+    MeshCoreViewTextInput,
 } MeshCoreViewId;
 
 /* What the node told us about itself. Filled by scene_connect from SELF_INFO
@@ -84,6 +86,7 @@ typedef struct {
     Widget* widget;
     TextBox* text_box;
     Loading* loading;
+    TextInput* text_input;
 
     /* Transport + protocol */
     MeshCoreLog* log;
@@ -98,6 +101,9 @@ typedef struct {
      * than a row number, because a contacts refresh can reorder the list. */
     uint8_t chat_peer[32];
     char chat_peer_name[MC_NAME_LEN + 1];
+    /* Backing buffer for the compose TextInput. MC_MAX_TEXT is the protocol's
+     * own message cap, so nothing here can exceed what a node will carry. */
+    char compose_buf[MC_MAX_TEXT];
 
     /* Logger — owns its own session, on whichever port the node is on. */
     MeshCoreLogger* logger;
