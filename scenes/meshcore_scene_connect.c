@@ -78,6 +78,14 @@ static const char* meshcore_connect_run(MeshCoreApp* app) {
     return NULL;
 }
 
+/* Shared entry point for scenes that need the link up but do not want to make
+ * the user press Connect. Idempotent: if the session is already pumping and the
+ * handshake has filled node, there is nothing to do. */
+const char* meshcore_connect_ensure(MeshCoreApp* app) {
+    if(meshcore_session_is_running(app->session) && app->node.valid) return NULL;
+    return meshcore_connect_run(app);
+}
+
 static int32_t meshcore_connect_worker(void* context) {
     MeshCoreApp* app = context;
     app->worker_error = meshcore_connect_run(app);

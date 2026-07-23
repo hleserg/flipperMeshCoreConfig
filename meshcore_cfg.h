@@ -26,6 +26,7 @@
 #include <gui/modules/loading.h>
 #include <gui/modules/submenu.h>
 #include <gui/modules/text_box.h>
+#include <gui/modules/text_input.h>
 #include <gui/modules/widget.h>
 
 #include "config/meshcore_apply.h"
@@ -48,6 +49,7 @@ typedef enum {
     MeshCoreViewWidget,
     MeshCoreViewTextBox,
     MeshCoreViewLoading,
+    MeshCoreViewTextInput,
 } MeshCoreViewId;
 
 /* What the node told us about itself. Filled by scene_connect from SELF_INFO
@@ -84,6 +86,7 @@ typedef struct {
     Widget* widget;
     TextBox* text_box;
     Loading* loading;
+    TextInput* text_input;
 
     /* Transport + protocol */
     MeshCoreLog* log;
@@ -98,6 +101,9 @@ typedef struct {
      * than a row number, because a contacts refresh can reorder the list. */
     uint8_t chat_peer[32];
     char chat_peer_name[MC_NAME_LEN + 1];
+    /* Backing buffer for the compose TextInput. MC_MAX_TEXT is the protocol's
+     * own message cap, so nothing here can exceed what a node will carry. */
+    char compose_buf[MC_MAX_TEXT];
 
     /* Logger — owns its own session, on whichever port the node is on. */
     MeshCoreLogger* logger;
@@ -140,3 +146,13 @@ typedef struct {
     FuriString* text_buf[2];
     uint8_t text_buf_slot;
 } MeshCoreApp;
+
+/* Bring the shared session up if it is not already: start the UART and do the
+ * APP_START / DEVICE_QUERY handshake, filling app->node. A no-op when already
+ * connected. Returns NULL on success or a short reason to show.
+ *
+ * This is what lets the messenger and configurator connect themselves — the
+ * user should not have to visit a Connect screen before using them. It blocks
+ * on the link, so call it from a worker thread, never the GUI thread. Defined
+ * in scenes/meshcore_scene_connect.c. */
+const char* meshcore_connect_ensure(MeshCoreApp* app);

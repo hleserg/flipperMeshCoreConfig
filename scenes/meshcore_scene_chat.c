@@ -9,7 +9,16 @@
  */
 #include "../meshcore_cfg.h"
 
+#define MESHCORE_CHAT_EVENT_WRITE 0x430u
+
 static void meshcore_scene_chat_build(MeshCoreApp* app);
+
+/* OK opens the keyboard. Runs on the GUI thread, so it only posts an event. */
+static void meshcore_scene_chat_write(GuiButtonType type, InputType input, void* context) {
+    MeshCoreApp* app = context;
+    if(type != GuiButtonTypeCenter || input != InputTypeShort) return;
+    view_dispatcher_send_custom_event(app->view_dispatcher, MESHCORE_CHAT_EVENT_WRITE);
+}
 
 void meshcore_scene_chat_on_enter(void* context) {
     MeshCoreApp* app = context;
@@ -62,12 +71,20 @@ static void meshcore_scene_chat_build(MeshCoreApp* app) {
     }
 
     widget_reset(app->widget);
-    /* The widget copies the string, so reusing this buffer is safe. */
-    widget_add_text_scroll_element(app->widget, 0, 0, 128, 64, furi_string_get_cstr(out));
+    /* The scroll stops short of the bottom so the Write button has a strip of
+     * its own; the widget copies the string, so reusing this buffer is safe. */
+    widget_add_text_scroll_element(app->widget, 0, 0, 128, 52, furi_string_get_cstr(out));
+    widget_add_button_element(
+        app->widget, GuiButtonTypeCenter, "Write", meshcore_scene_chat_write, app);
 }
 
 bool meshcore_scene_chat_on_event(void* context, SceneManagerEvent event) {
     MeshCoreApp* app = context;
+
+    if(event.type == SceneManagerEventTypeCustom && event.event == MESHCORE_CHAT_EVENT_WRITE) {
+        scene_manager_next_scene(app->scene_manager, MeshCoreSceneCompose);
+        return true;
+    }
 
     if(event.type == SceneManagerEventTypeTick) {
         /* total counts every message ever stored, so it changes even when the

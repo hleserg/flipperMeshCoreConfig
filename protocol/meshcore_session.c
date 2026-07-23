@@ -147,12 +147,31 @@ void meshcore_session_stop(MeshCoreSession* session) {
     if(!session->running) return;
 
     session->stop = true;
+    /* Cleared here, before the join, so a requester on another thread bails at
+     * its early running-check instead of arming a fresh request while we are
+     * tearing down. One already past that check (parked in the wait below) is
+     * handled by the flag set. */
+    session->running = false;
+
     furi_thread_join(session->worker);
     furi_thread_free(session->worker);
     session->worker = NULL;
 
+    /* Wake any requester parked waiting for a reply the worker — now joined —
+     * will never deliver. Without this it would sit out the full link timeout
+     * (~1.2s) holding request_lock, and the handoff below would wait on it that
+     * whole time. The woken requester finds got==false and returns false. A set
+     * with no waiter is harmless: the next exchange clears the flag before
+     * arming. */
+    furi_event_flag_set(session->flags, MESHCORE_SESSION_REPLY_FLAG);
+
+    /* Take request_lock before closing so a requester that was already in
+     * flight (past its checks, holding the lock) cannot be mid-send on the link
+     * as it goes away. The worker is already joined and never held this lock,
+     * so acquiring it here cannot deadlock. */
+    furi_mutex_acquire(session->request_lock, FuriWaitForever);
     meshcore_link_close(&session->link);
-    session->running = false;
+    furi_mutex_release(session->request_lock);
 }
 
 bool meshcore_session_is_running(MeshCoreSession* session) {
@@ -187,6 +206,16 @@ static bool meshcore_session_exchange(
     if(!session->running) return false;
 
     furi_mutex_acquire(session->request_lock, FuriWaitForever);
+
+    /* Re-check under the lock: meshcore_session_stop() takes this same lock
+     * before closing the link, so a stop that raced past the check above cannot
+     * now close the link while this send is in flight. Without it a caller on
+     * another thread (the mailbox) could write to a just-closed handle when the
+     * logger hands the UART over. */
+    if(!session->running) {
+        furi_mutex_release(session->request_lock);
+        return false;
+    }
 
     /* Clear before arming: a reply to a request we already gave up on must not
      * satisfy this one. */
@@ -267,6 +296,12 @@ bool meshcore_session_send(MeshCoreSession* session, const uint8_t* payload, siz
     if(!session->running) return false;
 
     furi_mutex_acquire(session->request_lock, FuriWaitForever);
+    /* Same re-check as the exchange path: a concurrent stop takes this lock
+     * before closing the link. */
+    if(!session->running) {
+        furi_mutex_release(session->request_lock);
+        return false;
+    }
     bool sent = meshcore_link_send(&session->link, payload, len);
     furi_mutex_release(session->request_lock);
 
