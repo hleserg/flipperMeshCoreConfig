@@ -13,6 +13,8 @@
  */
 #include <furi.h>
 
+#include "../config/meshcore_json.h"
+#include "../config/meshcore_preset.h"
 #include "../logger/meshcore_rxlog.h"
 #include "../messenger/meshcore_contacts.h"
 #include "../messenger/meshcore_messages.h"
@@ -878,6 +880,170 @@ static void test_rxlog_format(void) {
     CHECK_EQ_STR(hex, "", "which is what the CSV column should hold");
 }
 
+/* ======================================================================== *
+ *  Preset parsing — the code that meets hand-edited files
+ * ======================================================================== */
+static void test_parse_scaled(void) {
+    section("presets: decimals to wire units, without floats");
+
+    uint32_t value = 0;
+
+    /* The built-in preset's frequency. The wire carries whole kHz, so the
+     * trailing digits are dropped -- exactly as the reference client does. */
+    CHECK(meshcore_parse_scaled("868.731018", 1000, &value), "parses a long decimal");
+    CHECK_EQ_U32(value, 868731, "868.731018 MHz -> kHz");
+
+    CHECK(meshcore_parse_scaled("62.5", 1000, &value), "parses one decimal place");
+    CHECK_EQ_U32(value, 62500, "62.5 kHz -> Hz");
+
+    CHECK(meshcore_parse_scaled("250", 1000, &value), "parses a whole number");
+    CHECK_EQ_U32(value, 250000, "250 kHz -> Hz");
+
+    CHECK(meshcore_parse_scaled("0.5", 1000, &value), "parses a leading zero");
+    CHECK_EQ_U32(value, 500, "0.5 -> 500");
+
+    CHECK(meshcore_parse_scaled("7", 1, &value) && value == 7, "scale of 1 is a plain integer");
+
+    /* Everything a hand-edited file might contain. */
+    CHECK(!meshcore_parse_scaled("", 1000, &value), "empty string is rejected");
+    CHECK(!meshcore_parse_scaled("abc", 1000, &value), "letters are rejected");
+    CHECK(!meshcore_parse_scaled("-5", 1000, &value), "negatives are rejected");
+    CHECK(!meshcore_parse_scaled("868.7x", 1000, &value), "trailing junk is rejected");
+    CHECK(!meshcore_parse_scaled("99999999999", 1000, &value), "overflow is rejected");
+}
+
+static void test_json_get(void) {
+    section("presets: reading values out of JSON");
+
+    static const char* doc =
+        "{\n"
+        "  \"name\": \"Fest-869\",\n"
+        "  \"freq_mhz\": 869.525,\n"
+        "  \"sf\": 11,\n"
+        "  \"advert\": true,\n"
+        "  \"nested\": { \"sf\": 99 }\n"
+        "}\n";
+
+    char buffer[32];
+
+    CHECK(meshcore_json_get(doc, "name", buffer, sizeof(buffer)), "finds a string");
+    CHECK_EQ_STR(buffer, "Fest-869", "string arrives unquoted");
+
+    CHECK(meshcore_json_get(doc, "freq_mhz", buffer, sizeof(buffer)), "finds a number");
+    CHECK_EQ_STR(buffer, "869.525", "number arrives verbatim");
+
+    uint32_t value = 0;
+    CHECK(meshcore_json_get_uint(doc, "sf", &value) && value == 11, "typed integer read");
+
+    bool flag = false;
+    CHECK(meshcore_json_get_bool(doc, "advert", &flag) && flag, "typed boolean read");
+
+    CHECK(!meshcore_json_get(doc, "absent", buffer, sizeof(buffer)), "missing key fails");
+
+    /* A key inside a nested object must not be mistaken for a top-level one:
+     * "sf" appears twice here and the outer value has to win. */
+    CHECK(meshcore_json_get_uint(doc, "sf", &value) && value == 11, "nested keys do not shadow");
+
+    /* A value that does not fit must fail rather than truncate silently. */
+    char tiny[4];
+    CHECK(!meshcore_json_get(doc, "name", tiny, sizeof(tiny)), "oversized value is refused");
+
+    CHECK(
+        !meshcore_json_get("{\"name\": \"unterminated", "name", buffer, sizeof(buffer)),
+        "unterminated string is refused");
+}
+
+static void test_preset_builtin(void) {
+    section("presets: the built-in City/daily");
+
+    CHECK(MESHCORE_BUILTIN_PRESET_COUNT >= 1, "at least one preset ships in the binary");
+
+    const MeshCorePreset* preset = &MESHCORE_BUILTIN_PRESETS[0];
+    CHECK_EQ_STR(preset->name, "City/daily", "name");
+    CHECK_EQ_U32(preset->freq_khz, 868731, "frequency in wire units");
+    CHECK_EQ_U32(preset->bw_hz, 62500, "bandwidth in wire units");
+    CHECK_EQ_U32(preset->sf, 7, "spreading factor");
+    CHECK_EQ_U32(preset->cr, 7, "coding rate");
+    CHECK_EQ_U32(preset->path_hash_bytes, 2, "path hash bytes");
+    CHECK(preset->built_in, "flagged as built in");
+
+    const char* why = NULL;
+    CHECK(meshcore_preset_validate(preset, &why), "and it passes validation");
+
+    /* The wire wants the mode, which is one less than the byte count. */
+    CHECK_EQ_U32(meshcore_preset_path_hash_mode(preset), 1, "2 bytes means mode 1");
+
+    char text[MESHCORE_PRESET_FIELD_LEN];
+    meshcore_preset_format_freq(preset->freq_khz, text, sizeof(text));
+    CHECK_EQ_STR(text, "868.731 MHz", "frequency renders for the screen");
+    meshcore_preset_format_bw(preset->bw_hz, text, sizeof(text));
+    CHECK_EQ_STR(text, "62.5 kHz", "bandwidth renders for the screen");
+}
+
+static void test_preset_from_json(void) {
+    section("presets: loading one from the SD card");
+
+    MeshCorePreset preset;
+    const char* why = NULL;
+
+    static const char* good =
+        "{ \"name\": \"Fest-869\", \"freq_mhz\": 869.525, \"bw_khz\": 250,"
+        "  \"sf\": 11, \"cr\": 5, \"path_hash_bytes\": 1 }";
+
+    CHECK(meshcore_preset_from_json(good, &preset, &why), "a well-formed preset loads");
+    CHECK_EQ_STR(preset.name, "Fest-869", "name");
+    CHECK_EQ_U32(preset.freq_khz, 869525, "MHz converted to kHz");
+    CHECK_EQ_U32(preset.bw_hz, 250000, "kHz converted to Hz");
+    CHECK_EQ_U32(preset.sf, 11, "spreading factor");
+    CHECK_EQ_U32(preset.cr, 5, "coding rate");
+    CHECK(!preset.has_node_name, "optional node name absent");
+    CHECK(!preset.built_in, "loaded presets are not built in");
+
+    /* Optional fields. */
+    static const char* with_optional =
+        "{ \"name\": \"Base\", \"freq_mhz\": 868, \"bw_khz\": 62.5, \"sf\": 7, \"cr\": 7,"
+        "  \"path_hash_bytes\": 3, \"node_name\": \"BASE-1\", \"role\": \"repeater\" }";
+    CHECK(meshcore_preset_from_json(with_optional, &preset, &why), "optional fields load");
+    CHECK(preset.has_node_name && strcmp(preset.node_name, "BASE-1") == 0, "node name");
+    CHECK(preset.has_role && strcmp(preset.role, "repeater") == 0, "role");
+    CHECK_EQ_U32(meshcore_preset_path_hash_mode(&preset), 2, "3 bytes means mode 2");
+
+    /* A preset written before path hash was understood keeps working, and
+     * falls back to the firmware default of one byte. */
+    static const char* legacy =
+        "{ \"name\": \"Old\", \"freq_mhz\": 869.525, \"bw_khz\": 250, \"sf\": 10, \"cr\": 5 }";
+    CHECK(meshcore_preset_from_json(legacy, &preset, &why), "a preset without path hash loads");
+    CHECK_EQ_U32(preset.path_hash_bytes, 1, "and defaults to one byte");
+
+    /* Everything a hand-edited file gets wrong. Each must fail with a reason
+     * rather than load something plausible-looking. */
+    struct {
+        const char* json;
+        const char* label;
+    } bad[] = {
+        {"{ \"freq_mhz\": 869, \"bw_khz\": 250, \"sf\": 10, \"cr\": 5 }", "missing name"},
+        {"{ \"name\": \"x\", \"bw_khz\": 250, \"sf\": 10, \"cr\": 5 }", "missing frequency"},
+        {"{ \"name\": \"x\", \"freq_mhz\": 869, \"sf\": 10, \"cr\": 5 }", "missing bandwidth"},
+        {"{ \"name\": \"x\", \"freq_mhz\": 869, \"bw_khz\": 250, \"cr\": 5 }", "missing sf"},
+        {"{ \"name\": \"x\", \"freq_mhz\": 869, \"bw_khz\": 250, \"sf\": 99, \"cr\": 5 }",
+         "spreading factor out of range"},
+        {"{ \"name\": \"x\", \"freq_mhz\": 869, \"bw_khz\": 250, \"sf\": 10, \"cr\": 1 }",
+         "coding rate out of range"},
+        {"{ \"name\": \"x\", \"freq_mhz\": 8690, \"bw_khz\": 250, \"sf\": 10, \"cr\": 5 }",
+         "frequency out of range"},
+        {"{ \"name\": \"x\", \"freq_mhz\": 869, \"bw_khz\": 250, \"sf\": 10, \"cr\": 5,"
+         "  \"path_hash_bytes\": 4 }",
+         "path hash out of range"},
+    };
+
+    for(size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        why = NULL;
+        bool loaded = meshcore_preset_from_json(bad[i].json, &preset, &why);
+        CHECK(!loaded, "%s", bad[i].label);
+        CHECK(why != NULL && why[0] != '\0', "and says why: %s", why ? why : "(no reason)");
+    }
+}
+
 /* ======================================================================== */
 int main(void) {
     printf("MeshCore Config — host protocol tests\n");
@@ -909,6 +1075,11 @@ int main(void) {
     test_messages_from_event();
     test_messages_ring();
     test_messages_peer_filter();
+
+    test_parse_scaled();
+    test_json_get();
+    test_preset_builtin();
+    test_preset_from_json();
 
     test_rxlog_parse();
     test_rxlog_format();
