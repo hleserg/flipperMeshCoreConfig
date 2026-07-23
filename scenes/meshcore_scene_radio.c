@@ -136,7 +136,13 @@ static int32_t meshcore_radio_worker(void* context) {
     uint8_t payload[MC_MAX_PAYLOAD];
     mc_event_t event;
 
-    app->worker_error = NULL;
+    /* Connect ourselves if needed, like the messenger — the user should not
+     * have to visit Connect before applying. Idempotent when already up. */
+    app->worker_error = meshcore_connect_ensure(app);
+    if(app->worker_error != NULL) {
+        view_dispatcher_send_custom_event(app->view_dispatcher, MESHCORE_RADIO_EVENT_DONE);
+        return 0;
+    }
 
     size_t len = meshcore_apply_build(&preset, MeshCoreApplyRadio, payload, sizeof(payload));
     if(len == 0) {
@@ -180,18 +186,12 @@ static int32_t meshcore_radio_worker(void* context) {
     return 0;
 }
 
-/* Enter (OK) on the Apply row starts the send. */
+/* Enter (OK) on the Apply row starts the send. The worker connects itself if
+ * needed and reports a failure to reach the node, so there is no connection
+ * pre-check here. */
 static void meshcore_radio_enter(void* context, uint32_t index) {
     MeshCoreApp* app = context;
     if(index != MeshCoreRadioItemApply) return;
-
-    if(app->session == NULL || !meshcore_session_is_running(app->session)) {
-        widget_reset(app->widget);
-        widget_add_text_scroll_element(
-            app->widget, 0, 0, 128, 64, "\e#Not connected\nRun Connect first.");
-        view_dispatcher_switch_to_view(app->view_dispatcher, MeshCoreViewWidget);
-        return;
-    }
     if(app->worker != NULL) return; /* one apply in flight */
 
     widget_reset(app->widget);
