@@ -47,3 +47,21 @@ size_t meshcore_hex_encode(const uint8_t* data, size_t len, char* out, size_t ca
 /** Quarter-dB to a decimal string, e.g. 25 -> "6.25", -5 -> "-1.25". Done
  *  without floating point so the value is exact and reproducible. */
 void meshcore_rxlog_format_snr(int8_t snr_q4, char* out, size_t cap);
+
+/* How a live SNR reading measures up against the field acceptance criterion.
+ * The whole point of the logger is to answer "is this link good enough for the
+ * fest", and the guides put that line at +5 dB, so the screen should say it in
+ * one glance rather than making the operator do quarter-dB arithmetic while
+ * walking. */
+typedef enum {
+    MeshCoreSnrGood, /* >= +5 dB — meets the acceptance threshold with margin */
+    MeshCoreSnrMarginal, /* 0..+5 dB — decodes now, no headroom for a crowd    */
+    MeshCoreSnrBad, /* < 0 dB — below where a fest full of bodies survives */
+} MeshCoreSnrGrade;
+
+/** Grade a quarter-dB SNR against the +5 dB / 0 dB field thresholds. Pure, so
+ *  the boundaries are pinned by a host test rather than eyeballed in a field. */
+MeshCoreSnrGrade meshcore_rxlog_grade_snr(int8_t snr_q4);
+
+/** One-word label for a grade, for the live screen: "GOOD" / "OK" / "WEAK". */
+const char* meshcore_rxlog_grade_label(MeshCoreSnrGrade grade);

@@ -40,3 +40,25 @@ void meshcore_rxlog_format_snr(int8_t snr_q4, char* out, size_t cap) {
 
     snprintf(out, cap, "%s%u.%02u", sign, magnitude / 4u, (magnitude % 4u) * 25u);
 }
+
+MeshCoreSnrGrade meshcore_rxlog_grade_snr(int8_t snr_q4) {
+    /* Thresholds in quarter-dB, the unit the value arrives in: +5 dB is 20,
+     * 0 dB is 0. >= +5 is good, [0, +5) is marginal, below 0 is bad. The +5
+     * line is the acceptance criterion the field guides are written around. */
+    if(snr_q4 >= 20) return MeshCoreSnrGood;
+    if(snr_q4 >= 0) return MeshCoreSnrMarginal;
+    return MeshCoreSnrBad;
+}
+
+const char* meshcore_rxlog_grade_label(MeshCoreSnrGrade grade) {
+    switch(grade) {
+    case MeshCoreSnrGood:
+        return "GOOD";
+    case MeshCoreSnrMarginal:
+        return "OK";
+    case MeshCoreSnrBad:
+        return "WEAK";
+    default:
+        return "?";
+    }
+}

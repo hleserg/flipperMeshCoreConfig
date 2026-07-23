@@ -884,6 +884,25 @@ static void test_rxlog_format(void) {
     CHECK_EQ_STR(hex, "", "which is what the CSV column should hold");
 }
 
+static void test_rxlog_grade(void) {
+    section("rx log: grading SNR against the field threshold");
+
+    /* The boundary is +5 dB = 20 quarter-dB. On it is good; a hair under is not.
+     * These exact edges are the whole reason this is a pinned test — the walk
+     * is where a mis-set threshold would quietly pass a link that will fail. */
+    CHECK(meshcore_rxlog_grade_snr(20) == MeshCoreSnrGood, "+5.00 dB is GOOD");
+    CHECK(meshcore_rxlog_grade_snr(21) == MeshCoreSnrGood, "above +5 is GOOD");
+    CHECK(meshcore_rxlog_grade_snr(127) == MeshCoreSnrGood, "the ceiling is GOOD");
+    CHECK(meshcore_rxlog_grade_snr(19) == MeshCoreSnrMarginal, "+4.75 dB is only OK");
+    CHECK(meshcore_rxlog_grade_snr(0) == MeshCoreSnrMarginal, "exactly 0 dB is OK");
+    CHECK(meshcore_rxlog_grade_snr(-1) == MeshCoreSnrBad, "-0.25 dB is WEAK");
+    CHECK(meshcore_rxlog_grade_snr(-128) == MeshCoreSnrBad, "the no-signal floor is WEAK");
+
+    CHECK_EQ_STR(meshcore_rxlog_grade_label(MeshCoreSnrGood), "GOOD", "good label");
+    CHECK_EQ_STR(meshcore_rxlog_grade_label(MeshCoreSnrMarginal), "OK", "marginal label");
+    CHECK_EQ_STR(meshcore_rxlog_grade_label(MeshCoreSnrBad), "WEAK", "bad label");
+}
+
 /* ======================================================================== *
  *  Preset parsing — the code that meets hand-edited files
  * ======================================================================== */
@@ -1512,6 +1531,7 @@ int main(void) {
 
     test_rxlog_parse();
     test_rxlog_format();
+    test_rxlog_grade();
 
     test_contacts_collect();
     test_contacts_overflow();
