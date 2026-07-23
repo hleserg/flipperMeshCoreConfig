@@ -88,6 +88,11 @@ static MeshCoreApp* meshcore_cfg_app_alloc(void) {
 
     meshcore_contacts_reset(&app->contacts);
     meshcore_messages_reset(&app->messages);
+    /* Built-ins only for now; the card is read the first time Profiles opens,
+     * so a session that never goes there never waits on storage. */
+    meshcore_preset_store_init(&app->presets);
+    app->preset_index = 0;
+    memset(app->apply_result, 0, sizeof(app->apply_result));
     memset(app->chat_peer, 0, sizeof(app->chat_peer));
     app->chat_peer_name[0] = '\0';
     app->node_time = 0;
@@ -125,6 +130,9 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     meshcore_mailbox_free(app->mailbox);
     meshcore_logger_free(app->logger);
     meshcore_session_free(app->session);
+    /* After everything that logs has stopped, so the file has the whole run in
+     * it, and before the log itself goes away. */
+    meshcore_log_dump(app->log);
     meshcore_log_free(app->log);
 
     view_dispatcher_remove_view(app->view_dispatcher, MeshCoreViewSubmenu);
@@ -150,11 +158,53 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     free(app);
 }
 
+/* Launch argument -> the screen to open on. The menu is always underneath, so
+ * Back still goes where the user expects.
+ *
+ * For driving the app from a laptop:
+ *
+ *     loader open /ext/apps/GPIO/meshcore_cfg.fap logger
+ *     input send ok short
+ *
+ * `input send` does reach a running application, so this is a convenience
+ * rather than the only way in — it skips walking the menu, which matters when
+ * the thing under test is three screens deep and the run has to be repeatable.
+ * `loader open "<App Name>"` does not resolve external FAPs; the path form is
+ * the one that takes an argument. */
+static const struct {
+    const char* name;
+    MeshCoreSceneId scene;
+} meshcore_cfg_launch_args[] = {
+    {"logger", MeshCoreSceneLogger},
+    {"connect", MeshCoreSceneConnect},
+    {"contacts", MeshCoreSceneContacts},
+    {"profiles", MeshCoreSceneProfiles},
+    {"log", MeshCoreSceneLog},
+};
+
 int32_t meshcore_cfg_app(void* p) {
-    UNUSED(p);
+    const char* arg = p;
 
     MeshCoreApp* app = meshcore_cfg_app_alloc();
+    app->launch_scene = MeshCoreSceneNum;
+
+    if(arg != NULL && arg[0] != '\0') {
+        for(size_t i = 0; i < COUNT_OF(meshcore_cfg_launch_args); i++) {
+            if(strcmp(arg, meshcore_cfg_launch_args[i].name) == 0) {
+                app->launch_scene = meshcore_cfg_launch_args[i].scene;
+                break;
+            }
+        }
+        /* An unknown argument leaves the menu open rather than failing to
+         * start: a typo should not look like a crash. */
+    }
+
+    /* The menu opens the requested scene on its first tick, once the dispatcher
+     * is serving its queue. Doing it here instead crashes: a scene whose
+     * on_enter starts a worker would have that worker post an event into a
+     * queue nobody is reading yet. */
     scene_manager_next_scene(app->scene_manager, MeshCoreSceneMenu);
+
     view_dispatcher_run(app->view_dispatcher);
     meshcore_cfg_app_free(app);
 

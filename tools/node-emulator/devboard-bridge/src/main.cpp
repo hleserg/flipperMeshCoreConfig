@@ -40,8 +40,24 @@
  * frame per iteration without ever holding one back. */
 static const size_t kChunk = 256;
 
+/* The default is 256 bytes, and that is not enough. A GET_CONTACTS reply is one
+ * uninterrupted burst -- CONTACTS_START, a 151-byte frame per contact, then
+ * END_OF_CONTACTS, so 604 bytes for four contacts and more for a real node.
+ * While this loop is busy writing the other direction, anything past the buffer
+ * is dropped by the UART, and the damage does not look like a lost frame: the
+ * framer resyncs on the next plausible length and hands up a contact record
+ * assembled from the middle of two others. A name arrived as "RO" instead of
+ * "ROVER-M" that way, which is what led here.
+ *
+ * Sized for the largest burst a node with a full contact list can produce. */
+static const size_t kRxBuffer = 4096;
+
 void setup() {
+    /* Both setRxBufferSize calls must come before their begin(). */
+    Serial.setRxBufferSize(kRxBuffer);
     Serial.begin(BRIDGE_BAUD);
+
+    Serial1.setRxBufferSize(kRxBuffer);
     Serial1.begin(BRIDGE_BAUD, SERIAL_8N1, BRIDGE_RX_PIN, BRIDGE_TX_PIN);
 
     /* No banner on Serial: this is a byte-exact pipe, and a greeting would land

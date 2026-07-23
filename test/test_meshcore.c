@@ -16,7 +16,10 @@
 #include "../config/meshcore_apply.h"
 #include "../config/meshcore_json.h"
 #include "../config/meshcore_preset.h"
+#include "../logger/meshcore_events.h"
+#include "../logger/meshcore_ping.h"
 #include "../logger/meshcore_rxlog.h"
+#include "../logger/meshcore_telemetry.h"
 #include "../messenger/meshcore_contacts.h"
 #include "../messenger/meshcore_messages.h"
 #include "../protocol/meshcore_link.h"
@@ -1169,6 +1172,305 @@ static void test_apply_verify(void) {
 }
 
 /* ======================================================================== */
+/* ---- telemetry.csv ---- */
+
+/* Count the fields in a CSV row, so a dropped or added comma is caught by the
+ * shape of the line rather than by someone reading it in a field. */
+static size_t csv_fields(const char* line) {
+    size_t n = 1;
+    for(const char* p = line; *p != '\0'; p++) {
+        if(*p == ',') n++;
+    }
+    return n;
+}
+
+/* The header and the row have to agree, or every column after the first
+ * mismatch is silently reading someone else's data. */
+static void check_row_matches_header(const char* row, const char* header, const char* label) {
+    CHECK(
+        csv_fields(row) == csv_fields(header),
+        "%s: row has %u fields, header has %u",
+        label,
+        (unsigned)csv_fields(row),
+        (unsigned)csv_fields(header));
+}
+
+static void test_telemetry_full(void) {
+    section("telemetry: a node that answers everything");
+
+    MeshCoreTelemetry t;
+    memset(&t, 0, sizeof(t));
+    t.have_battery = true;
+    t.battery_mv = 3947;
+    t.have_core = true;
+    t.uptime_secs = 12345;
+    t.have_radio = true;
+    t.noise_floor = -107;
+    t.last_rssi = -92;
+    t.last_snr_q4 = 26;
+    t.tx_air_secs = 11;
+    t.rx_air_secs = 22;
+    t.have_packets = true;
+    t.recv = 500;
+    t.sent = 120;
+    t.flood_tx = 60;
+    t.direct_tx = 60;
+    t.flood_rx = 250;
+    t.direct_rx = 250;
+    t.recv_errors = 3;
+    t.has_recv_errors = true;
+
+    char row[512];
+    meshcore_telemetry_format(&t, "2026-07-23T18:00:00", "55.751000", "37.618000", row, sizeof(row));
+
+    /* The tags the logger appends are not part of this function's output, so
+     * compare against the header minus its three trailing columns. */
+    check_row_matches_header(row, "ts,batt_pct,voltage,noise_floor,rx_total,tx_total,"
+                                  "recv_errors,lat,lon,acc,raw_bat,raw_radio,raw_pkts,raw_core",
+                             "full row");
+
+    CHECK(strstr(row, ",3947,") != NULL, "batt_pct carries millivolts, as meshlog.py did");
+    CHECK(strstr(row, ",3.947,") != NULL, "voltage is the same number in volts");
+    CHECK(strstr(row, ",-107,") != NULL, "noise floor");
+    CHECK(strstr(row, ",500,120,3,") != NULL, "rx/tx totals and recv_errors");
+    CHECK(strstr(row, "mv=3947") != NULL, "raw_bat");
+    CHECK(strstr(row, "nf=-107;rssi=-92;snr_q4=26;tx_air=11;rx_air=22") != NULL, "raw_radio");
+    CHECK(strstr(row, "recv=500;sent=120;ftx=60;dtx=60;frx=250;drx=250") != NULL, "raw_pkts");
+    /* raw_core: collected before, now actually written. up=uptime, q=queue,
+     * cerr=CORE error count (both zero here from the memset). */
+    CHECK(strstr(row, "up=12345;q=0;cerr=0") != NULL, "raw_core carries what was silently dropped");
+}
+
+static void test_telemetry_missing(void) {
+    section("telemetry: a silent field is empty, never zero");
+
+    MeshCoreTelemetry t;
+    memset(&t, 0, sizeof(t));
+
+    char row[512];
+    meshcore_telemetry_format(&t, "2026-07-23T18:00:00", "", "", row, sizeof(row));
+
+    check_row_matches_header(row, "ts,batt_pct,voltage,noise_floor,rx_total,tx_total,"
+                                  "recv_errors,lat,lon,acc,raw_bat,raw_radio,raw_pkts,raw_core",
+                             "empty row");
+
+    /* On a discharge curve a missing sample and a real zero mean opposite
+     * things, so nothing may be invented. */
+    CHECK(strstr(row, ",0,") == NULL, "no field was filled in with a zero");
+    CHECK_EQ_STR(row, "2026-07-23T18:00:00,,,,,,,,,,,,,", "everything else blank");
+}
+
+static void test_telemetry_old_firmware(void) {
+    section("telemetry: recv_errors only exists on firmware 1.12+");
+
+    MeshCoreTelemetry t;
+    memset(&t, 0, sizeof(t));
+    t.have_packets = true;
+    t.recv = 7;
+    t.sent = 2;
+    t.recv_errors = 0;
+    t.has_recv_errors = false;
+
+    char row[512];
+    meshcore_telemetry_format(&t, "T", "", "", row, sizeof(row));
+
+    /* An older node must not be made to look like it reported zero errors.
+     * raw_core is empty here — have_core is false, so no trailing CORE data. */
+    CHECK_EQ_STR(
+        row, "T,,,,7,2,,,,,,,recv=7;sent=2;ftx=0;dtx=0;frx=0;drx=0,", "errors left empty");
+}
+
+/* ---- ping.csv ---- */
+
+static void test_ping_targets(void) {
+    section("ping: the target table");
+
+    MeshCorePing ping;
+    meshcore_ping_init(&ping);
+
+    CHECK(meshcore_ping_next(&ping) == NULL, "no targets, nothing to ping");
+
+    CHECK(meshcore_ping_add(&ping, "BASE"), "first target");
+    CHECK(!meshcore_ping_add(&ping, "BASE"), "duplicates are refused");
+    CHECK(!meshcore_ping_add(&ping, ""), "an empty name is not a target");
+    CHECK(meshcore_ping_add(&ping, "REP1"), "second target");
+
+    /* Round robin, so no single node monopolises the air. */
+    CHECK_EQ_STR(meshcore_ping_next(&ping)->name, "BASE", "first turn");
+    CHECK_EQ_STR(meshcore_ping_next(&ping)->name, "REP1", "second turn");
+    CHECK_EQ_STR(meshcore_ping_next(&ping)->name, "BASE", "wraps around");
+
+    while(meshcore_ping_add(&ping, "FILLER1") || meshcore_ping_add(&ping, "FILLER2") ||
+          meshcore_ping_add(&ping, "FILLER3")) {
+    }
+    CHECK_EQ_U32(ping.count, MESHCORE_PING_MAX_TARGETS, "table stops at its limit");
+}
+
+static void test_ping_resolve(void) {
+    section("ping: a target is only pingable once its key arrives");
+
+    MeshCorePing ping;
+    meshcore_ping_init(&ping);
+    meshcore_ping_add(&ping, "BASE");
+
+    CHECK(!ping.targets[0].known, "unknown until an advert is heard");
+
+    uint8_t key[32];
+    memset(key, 0xAB, sizeof(key));
+    CHECK(!meshcore_ping_resolve(&ping, "NOBODY", key), "resolving a non-target fails");
+    CHECK(meshcore_ping_resolve(&ping, "BASE", key), "resolving a target succeeds");
+    CHECK(ping.targets[0].known, "now pingable");
+    CHECK(memcmp(ping.targets[0].pubkey, key, 32) == 0, "key stored whole");
+}
+
+static void test_ping_roundtrip(void) {
+    section("ping: matching the ack that closes a measurement");
+
+    MeshCorePing ping;
+    meshcore_ping_init(&ping);
+    meshcore_ping_add(&ping, "BASE");
+
+    uint32_t rtt = 0;
+    CHECK(!meshcore_ping_confirm(&ping, 0x1234, 100, &rtt), "no ack matches when none is pending");
+
+    meshcore_ping_started(&ping, 0, 1, 0xDEADBEEF, 1000);
+    CHECK(ping.in_flight, "armed");
+
+    CHECK(!meshcore_ping_confirm(&ping, 0x0BADC0DE, 1050, &rtt), "someone else's ack is ignored");
+    CHECK(ping.in_flight, "and leaves ours pending");
+
+    CHECK(meshcore_ping_confirm(&ping, 0xDEADBEEF, 1050, &rtt), "our ack matches");
+    CHECK_EQ_U32(rtt, 50, "round trip");
+    CHECK(!ping.in_flight, "slot freed");
+
+    CHECK(!meshcore_ping_confirm(&ping, 0xDEADBEEF, 1100, &rtt), "the same ack twice is ignored");
+}
+
+static void test_ping_tick_wrap(void) {
+    section("ping: a tick counter that wraps mid-flight");
+
+    MeshCorePing ping;
+    meshcore_ping_init(&ping);
+    meshcore_ping_add(&ping, "BASE");
+
+    /* Sent just before the counter wraps, acked just after. Signed arithmetic
+     * here would produce a round trip of about seven weeks. */
+    meshcore_ping_started(&ping, 0, 1, 0x55, 0xFFFFFFF0u);
+    uint32_t rtt = 0;
+    CHECK(meshcore_ping_confirm(&ping, 0x55, 0x00000010u, &rtt), "ack still matches");
+    CHECK_EQ_U32(rtt, 32, "elapsed time survives the wrap");
+}
+
+static void test_ping_parse_ack(void) {
+    section("ping: reading the ack tag off the wire");
+
+    uint32_t code = 0;
+
+    /* Four payload bytes after the code byte is the short form, and it is what
+     * the reference Python client accepts. meshcore_c demands eight and drops
+     * this, which is why the parsing is ours. */
+    const uint8_t short_form[] = {0x82, 0xF0, 0xE7, 0x11, 0x8E};
+    CHECK(meshcore_ping_parse_ack(short_form, sizeof(short_form), &code), "short form accepted");
+    CHECK_EQ_U32(code, 0x8E11E7F0u, "tag read little endian");
+
+    /* The long form appends a round trip. The tag is in the same place and
+     * everything after it is ignored. */
+    const uint8_t long_form[] = {0x82, 0xF0, 0xE7, 0x11, 0x8E, 0x2C, 0x01, 0x00, 0x00};
+    code = 0;
+    CHECK(meshcore_ping_parse_ack(long_form, sizeof(long_form), &code), "long form accepted");
+    CHECK_EQ_U32(code, 0x8E11E7F0u, "same tag, trailing bytes ignored");
+
+    /* A tag one byte short is not a tag. Accepting it would match a ping
+     * against three bytes of a real code and one byte of nothing. */
+    CHECK(!meshcore_ping_parse_ack(short_form, 4, &code), "truncated payload rejected");
+
+    const uint8_t other_push[] = {0x88, 0x01, 0x02, 0x03, 0x04};
+    CHECK(!meshcore_ping_parse_ack(other_push, sizeof(other_push), &code), "another push rejected");
+
+    CHECK(!meshcore_ping_parse_ack(NULL, 5, &code), "NULL rejected");
+
+    /* The tag SENT hands out and the tag the ack carries must round-trip, or
+     * every ping is a miss -- which is exactly what happened on the device. */
+    MeshCorePing ping;
+    meshcore_ping_init(&ping);
+    meshcore_ping_add(&ping, "BASE");
+    meshcore_ping_started(&ping, 0, 1, 0x8E11E7F0u, 1000);
+
+    CHECK(meshcore_ping_parse_ack(short_form, sizeof(short_form), &code), "parse for the match");
+    uint32_t rtt = 0;
+    CHECK(meshcore_ping_confirm(&ping, code, 1354, &rtt), "the parsed tag closes the ping");
+    CHECK_EQ_U32(rtt, 354, "round trip");
+}
+
+static void test_ping_timeout(void) {
+    section("ping: giving up");
+
+    MeshCorePing ping;
+    meshcore_ping_init(&ping);
+    meshcore_ping_add(&ping, "BASE");
+
+    CHECK(!meshcore_ping_timeout(&ping), "nothing to give up on");
+    meshcore_ping_started(&ping, 0, 1, 0x55, 1000);
+    CHECK(meshcore_ping_timeout(&ping), "gives up on the outstanding one");
+    CHECK(!meshcore_ping_timeout(&ping), "and only once");
+}
+
+static void test_ping_format(void) {
+    section("ping: the row");
+
+    char row[256];
+
+    meshcore_ping_format("T", "BASE", 7, true, 143, "55.751000", "37.618000", row, sizeof(row));
+    CHECK_EQ_STR(row, "T,BASE,7,1,143,55.751000,37.618000,", "a hit");
+    check_row_matches_header(row, "ts,target,seq,ok,rtt_ms,lat,lon,acc", "hit row");
+
+    /* Zero is a round trip that happened impossibly fast, not one that never
+     * happened — a miss has to leave the column empty. */
+    meshcore_ping_format("T", "BASE", 8, false, 0, "", "", row, sizeof(row));
+    CHECK_EQ_STR(row, "T,BASE,8,0,,,,", "a miss");
+    check_row_matches_header(row, "ts,target,seq,ok,rtt_ms,lat,lon,acc", "miss row");
+}
+
+/* ---- events.csv ---- */
+
+static void test_events_format(void) {
+    section("events: rows and kinds");
+
+    char row[256];
+    const char* header = "ts,type,info,lat,lon,acc,raw";
+
+    meshcore_event_format(MeshCoreEventAdvert, "T", "BASE", "a1b2c3", "1.0", "2.0", row, sizeof(row));
+    CHECK_EQ_STR(row, "T,advert,BASE,1.0,2.0,,a1b2c3", "advert");
+    check_row_matches_header(row, header, "advert row");
+
+    meshcore_event_format(MeshCoreEventMessage, "T", "hello", "", "", "", row, sizeof(row));
+    CHECK_EQ_STR(row, "T,msg,hello,,,,", "message");
+    check_row_matches_header(row, header, "message row");
+
+    meshcore_event_format(MeshCoreEventMark, "T", "3", "", "", "", row, sizeof(row));
+    CHECK_EQ_STR(row, "T,mark,3,,,,", "point mark");
+
+    /* NULL is what an absent field looks like at the call site. */
+    meshcore_event_format(MeshCoreEventMark, "T", NULL, NULL, "", "", row, sizeof(row));
+    CHECK_EQ_STR(row, "T,mark,,,,,", "NULL info and raw render empty");
+}
+
+static void test_events_key_prefix(void) {
+    section("events: identifying a neighbour with no name");
+
+    uint8_t key[32];
+    for(size_t i = 0; i < sizeof(key); i++) key[i] = (uint8_t)(i * 17);
+
+    char out[24];
+    meshcore_event_key_prefix(key, 6, out, sizeof(out));
+    CHECK_EQ_STR(out, "001122334455", "six bytes of key, lowercase hex");
+
+    /* A buffer too small must truncate cleanly rather than run off the end. */
+    char small[5];
+    meshcore_event_key_prefix(key, 6, small, sizeof(small));
+    CHECK(strlen(small) < sizeof(small), "truncated output still terminates");
+}
+
 int main(void) {
     printf("MeshCore Config — host protocol tests\n");
     printf("library version %s\n", MESHCORE_COMPANION_VERSION);
@@ -1215,6 +1517,21 @@ int main(void) {
     test_contacts_overflow();
     test_contacts_sort();
     test_contacts_age();
+
+    test_telemetry_full();
+    test_telemetry_missing();
+    test_telemetry_old_firmware();
+
+    test_ping_targets();
+    test_ping_resolve();
+    test_ping_roundtrip();
+    test_ping_tick_wrap();
+    test_ping_parse_ack();
+    test_ping_timeout();
+    test_ping_format();
+
+    test_events_format();
+    test_events_key_prefix();
 
     printf("\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

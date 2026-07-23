@@ -15,6 +15,11 @@
 
 #define MESHCORE_LOG_CAP 2048u
 
+/* Every line also goes to the system log under this tag, so a session can be
+ * watched from a laptop with `log` on the Flipper CLI instead of by holding
+ * the device and scrolling. Filter with `log MeshCore`. */
+#define MESHCORE_LOG_TAG "MeshCore"
+
 typedef struct MeshCoreLog MeshCoreLog;
 
 MeshCoreLog* meshcore_log_alloc(void);
@@ -36,3 +41,21 @@ void meshcore_log_snapshot(MeshCoreLog* log, FuriString* out);
 uint32_t meshcore_log_revision(MeshCoreLog* log);
 
 void meshcore_log_clear(MeshCoreLog* log);
+
+/* Where the log is left after the app closes. */
+#define MESHCORE_LOG_FILE EXT_PATH("apps_data/meshcore_cfg/last_run.log")
+
+/** Write the log to the card, overwriting whatever the previous run left.
+ *
+ *  Called once on the way out rather than line by line: a synced SD write costs
+ *  tens of milliseconds and this is called from the session worker, which is
+ *  also the thread draining the UART.
+ *
+ *  It exists because the on-screen log needs the device in hand, and a scene
+ *  that only misbehaves when nobody is holding the Flipper is a scene that
+ *  cannot be debugged. After the app exits:
+ *
+ *      storage read /ext/apps_data/meshcore_cfg/last_run.log
+ *
+ *  (After. Reading a file the app still holds open wedges the storage service.) */
+void meshcore_log_dump(MeshCoreLog* log);

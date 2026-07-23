@@ -9,7 +9,17 @@
 #include "../meshcore_cfg.h"
 
 #define MESHCORE_LOGGER_EVENT_STARTED 0x300u
+#define MESHCORE_LOGGER_EVENT_MARK 0x301u
 #define MESHCORE_LOGGER_WORKER_STACK 2048u
+
+/* The OK button drops a point mark into events.csv. It runs on the GUI thread,
+ * so it only posts an event: everything the mark does happens back in the
+ * scene's own handler, off the button callback. */
+static void meshcore_scene_logger_button(GuiButtonType type, InputType input, void* context) {
+    MeshCoreApp* app = context;
+    if(type != GuiButtonTypeCenter || input != InputTypeShort) return;
+    view_dispatcher_send_custom_event(app->view_dispatcher, MESHCORE_LOGGER_EVENT_MARK);
+}
 
 static int32_t meshcore_logger_scene_worker(void* context) {
     MeshCoreApp* app = context;
@@ -41,9 +51,9 @@ static void meshcore_scene_logger_show_running(MeshCoreApp* app) {
     snprintf(line, sizeof(line), "%.20s", node->name);
     widget_add_string_element(app->widget, 64, 10, AlignLeft, AlignBottom, FontSecondary, line);
 
-    snprintf(line, sizeof(line), "packets: %lu", (unsigned long)meshcore_logger_rx_count(app->logger));
-    widget_add_string_element(app->widget, 0, 24, AlignLeft, AlignBottom, FontSecondary, line);
-
+    /* SNR gets the primary font and the top line, because it is the number the
+     * operator is actually walking by — everything else is confirmation that
+     * the thing is alive. */
     int8_t snr_q4 = 0;
     int8_t rssi = 0;
     if(meshcore_logger_last_rx(app->logger, &snr_q4, &rssi)) {
@@ -53,24 +63,69 @@ static void meshcore_scene_logger_show_running(MeshCoreApp* app) {
     } else {
         snprintf(line, sizeof(line), "waiting for traffic");
     }
-    widget_add_string_element(app->widget, 0, 36, AlignLeft, AlignBottom, FontSecondary, line);
+    widget_add_string_element(app->widget, 0, 24, AlignLeft, AlignBottom, FontPrimary, line);
 
-    /* Just the session name; the full path would not fit and the user already
-     * knows the directory it lives in. */
-    const char* path = meshcore_logger_session_path(app->logger);
-    const char* leaf = strrchr(path, '/');
-    snprintf(line, sizeof(line), "%s", leaf ? leaf + 1 : path);
-    widget_add_string_element(app->widget, 0, 48, AlignLeft, AlignBottom, FontSecondary, line);
+    /* Packets prove the radio is heard at all; the ping ratio is the number the
+     * acceptance criteria are written in, so both belong on one line. */
+    uint32_t sent = 0;
+    uint32_t ok = 0;
+    meshcore_logger_ping_stats(app->logger, &sent, &ok);
+    if(sent > 0) {
+        snprintf(
+            line,
+            sizeof(line),
+            "pkt %lu   ping %lu/%lu",
+            (unsigned long)meshcore_logger_rx_count(app->logger),
+            (unsigned long)ok,
+            (unsigned long)sent);
+    } else {
+        snprintf(
+            line, sizeof(line), "pkt %lu", (unsigned long)meshcore_logger_rx_count(app->logger));
+    }
+    widget_add_string_element(app->widget, 0, 36, AlignLeft, AlignBottom, FontSecondary, line);
 
     uint32_t dropped = meshcore_logger_dropped(app->logger);
     if(dropped > 0) {
         /* Only shown when it happens — a dropped row means the card could not
-         * keep up, which the user needs to know about while still recording. */
+         * keep up, which the user needs to know about while still recording,
+         * and it displaces the session name because it matters more. */
         snprintf(line, sizeof(line), "dropped: %lu", (unsigned long)dropped);
     } else {
-        snprintf(line, sizeof(line), "Back = stop");
+        /* Just the session name; the full path would not fit and the user
+         * already knows the directory it lives in. */
+        const char* path = meshcore_logger_session_path(app->logger);
+        const char* leaf = strrchr(path, '/');
+        snprintf(
+            line,
+            sizeof(line),
+            "%s  marks %lu",
+            leaf ? leaf + 1 : path,
+            (unsigned long)meshcore_logger_marks(app->logger));
     }
-    widget_add_string_element(app->widget, 0, 62, AlignLeft, AlignBottom, FontSecondary, line);
+    widget_add_string_element(app->widget, 0, 47, AlignLeft, AlignBottom, FontSecondary, line);
+
+    widget_add_button_element(
+        app->widget, GuiButtonTypeCenter, "Mark", meshcore_scene_logger_button, app);
+}
+
+/* Everything on screen, folded into one number. Redrawing only when this
+ * changes is what keeps the display from flickering and from fighting the
+ * user; folding *all* the counters in is what makes a mark appear the instant
+ * it is pressed rather than at the next packet. */
+static uint32_t meshcore_scene_logger_signature(MeshCoreApp* app) {
+    uint32_t sent = 0;
+    uint32_t ok = 0;
+    meshcore_logger_ping_stats(app->logger, &sent, &ok);
+
+    int8_t snr_q4 = 0;
+    int8_t rssi = 0;
+    meshcore_logger_last_rx(app->logger, &snr_q4, &rssi);
+
+    /* The +1 keeps zero meaning "never drawn". */
+    return 1u + meshcore_logger_rx_count(app->logger) * 7u +
+           meshcore_logger_marks(app->logger) * 1000003u + sent * 101u + ok * 10007u +
+           (uint32_t)(uint8_t)snr_q4 * 31u + (uint32_t)(uint8_t)rssi * 37u +
+           meshcore_logger_dropped(app->logger) * 13u;
 }
 
 static void meshcore_scene_logger_show(MeshCoreApp* app, bool started) {
@@ -121,20 +176,28 @@ bool meshcore_scene_logger_on_event(void* context, SceneManagerEvent event) {
         }
         meshcore_scene_logger_show(app, true);
         scene_manager_set_scene_state(
-            app->scene_manager, MeshCoreSceneLogger, meshcore_logger_rx_count(app->logger) + 1);
+            app->scene_manager, MeshCoreSceneLogger, meshcore_scene_logger_signature(app));
+        return true;
+    }
+
+    if(event.type == SceneManagerEventTypeCustom && event.event == MESHCORE_LOGGER_EVENT_MARK) {
+        /* Cheap enough for the GUI thread: it formats a row and posts it to the
+         * writer, and never touches the card or the link. */
+        meshcore_logger_mark(app->logger);
+        meshcore_scene_logger_show(app, true);
+        scene_manager_set_scene_state(
+            app->scene_manager, MeshCoreSceneLogger, meshcore_scene_logger_signature(app));
         return true;
     }
 
     if(event.type == SceneManagerEventTypeTick) {
         /* Only once the worker is done, or the display would race the start. */
         if(!app->worker && meshcore_logger_is_running(app->logger)) {
-            /* Redraw only when a packet actually landed. Rebuilding on every
-             * tick regardless would make the screen flicker and would fight
-             * anything the user is doing with it. The +1 keeps 0 meaning
-             * "never drawn". Every counter on screen moves with rx_count, so
-             * it is a sufficient signature. */
+            /* Redraw only when something on screen actually changed. Rebuilding
+             * on every tick regardless would make the screen flicker and would
+             * fight anything the user is doing with it. */
             uint32_t shown = scene_manager_get_scene_state(app->scene_manager, MeshCoreSceneLogger);
-            uint32_t now = meshcore_logger_rx_count(app->logger) + 1;
+            uint32_t now = meshcore_scene_logger_signature(app);
             if(shown != now) {
                 scene_manager_set_scene_state(app->scene_manager, MeshCoreSceneLogger, now);
                 meshcore_scene_logger_show(app, true);

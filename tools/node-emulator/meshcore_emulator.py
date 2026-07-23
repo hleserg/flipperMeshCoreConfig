@@ -499,6 +499,11 @@ class Hub:
         self.writers.discard(writer)
 
     def broadcast(self, payload: bytes) -> None:
+        # Pushes are the half of the traffic that answers no question, so
+        # nothing else in the log accounts for them. Without this line an ACK
+        # that was sent and an ACK that was never sent look identical from the
+        # client side.
+        LOG.debug("=> push 0x%02X (%d bytes)", payload[0], len(payload))
         frame = FrameCodec.encode(payload)
         for writer in list(self.writers):
             try:
@@ -639,6 +644,11 @@ async def serve_serial(port: str, baud: int, emulator: CompanionEmulator, hub: H
             for payload in codec.feed(data):
                 LOG.debug("<- cmd 0x%02X (%d bytes)", payload[0], len(payload))
                 for reply in emulator.handle(payload):
+                    # Logged here as well as on the TCP path. Without it a
+                    # serial session shows only what the client sent, and a
+                    # reply that never arrived looks exactly like a reply the
+                    # client ignored.
+                    LOG.debug("-> resp 0x%02X (%d bytes)", reply[0], len(reply))
                     writer.write(FrameCodec.encode(reply))
                 await writer.drain()
     finally:

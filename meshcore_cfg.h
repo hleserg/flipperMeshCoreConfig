@@ -28,6 +28,8 @@
 #include <gui/modules/text_box.h>
 #include <gui/modules/widget.h>
 
+#include "config/meshcore_apply.h"
+#include "config/meshcore_preset_store.h"
 #include "logger/meshcore_logger.h"
 #include "meshcore_log.h"
 #include "messenger/meshcore_contacts.h"
@@ -99,6 +101,15 @@ typedef struct {
 
     /* Logger — owns its own session, on whichever port the node is on. */
     MeshCoreLogger* logger;
+
+    /* Radio presets: built-ins always, card presets once Profiles has been
+     * opened. Held on the app so the list survives moving between Profiles and
+     * Apply without re-reading the card. */
+    MeshCorePresetStore presets;
+    size_t preset_index;
+    /* One MeshCoreApplyResult per step; the enum lives in the apply scene
+     * because nothing else has an opinion about it. */
+    uint8_t apply_result[MeshCoreApplyStepCount];
     /* The node's clock, from CURR_TIME. Contact ages are relative to this and
      * not to the Flipper's RTC, because that is the timebase last_advert is
      * expressed in. Zero means "not read yet". */
@@ -108,6 +119,13 @@ typedef struct {
      * nobody asked for. Read by scenes; stage 2 turns this into real handling. */
     volatile uint32_t push_count;
     volatile uint8_t last_push_code;
+
+    /* Scene named by the launch argument, opened once the dispatcher is
+     * running rather than before it. Entering a scene that starts a worker
+     * before view_dispatcher_run() means that worker posts into a queue nobody
+     * is serving yet, which the logger scene reliably crashes on.
+     * MeshCoreSceneNum means "no argument". */
+    MeshCoreSceneId launch_scene;
 
     /* Worker thread owned by whichever scene is currently running one. */
     FuriThread* worker;

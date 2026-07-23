@@ -50,6 +50,18 @@ void meshcore_scene_menu_on_enter(void* context) {
 bool meshcore_scene_menu_on_event(void* context, SceneManagerEvent event) {
     MeshCoreApp* app = context;
 
+    /* A scene named on the command line opens here, on the first tick, rather
+     * than before view_dispatcher_run(). By now the dispatcher is serving its
+     * queue, so a scene that starts a worker has somewhere for that worker's
+     * completion event to go. Consumed, so Back returns to the menu instead of
+     * reopening it. */
+    if(event.type == SceneManagerEventTypeTick && app->launch_scene != MeshCoreSceneNum) {
+        MeshCoreSceneId scene = app->launch_scene;
+        app->launch_scene = MeshCoreSceneNum;
+        scene_manager_next_scene(app->scene_manager, scene);
+        return true;
+    }
+
     if(event.type == SceneManagerEventTypeCustom) {
         scene_manager_set_scene_state(app->scene_manager, MeshCoreSceneMenu, event.event);
 
@@ -65,12 +77,15 @@ bool meshcore_scene_menu_on_event(void* context, SceneManagerEvent event) {
         case MeshCoreMenuIndexLogger:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneLogger);
             break;
+        case MeshCoreMenuIndexProfiles:
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneProfiles);
+            break;
         case MeshCoreMenuIndexSerialLog:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneLog);
             break;
         default:
-            /* Radio / Identity / Role / Profiles / Send advert land in steps
-             * 4 and 5; the selection is remembered until then. */
+            /* Radio / Identity / Role / Send advert are still ahead; the
+             * selection is remembered until then. */
             break;
         }
 
