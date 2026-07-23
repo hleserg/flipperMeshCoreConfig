@@ -59,7 +59,11 @@ PAGES = [
     {
         "file": "guide-mark.html",
         "title": "Полевой тест — Марк",
-        "source": "guide-mark.md",
+        # Sourced straight from the repo root and transformed on the way
+        # through, so re-running the build after the author updates his guide
+        # keeps exactly the two edits we are allowed to make and nothing else.
+        "root_source": "MESHCORE_MARK.md",
+        "transform": "mark",
         "fallback": (
             "Исходник `MESHCORE_MARK.md` ещё не закоммичен в репозиторий.\n\n"
             "🚨 Эта страница соберётся автоматически, как только файл появится: "
@@ -67,6 +71,41 @@ PAGES = [
         ),
     },
 ]
+
+# The only two changes Mark's guide is allowed to receive. His methodology is
+# not ours to edit: he stays on the phone, and anything that quietly switched
+# his firmware or turned his radio off would leave him unable to see his nodes.
+MARK_INTRO = """> 💡 **Ты ничего не паяешь и ничего не меняешь в своём процессе.**
+> Наша прошивка сама определяет, воткнут ли флиппер в ноду. У тебя он не воткнут,
+> значит нода всегда поднимает WiFi или BLE — ровно как раньше. Termux, приложение,
+> Trace Path: всё работает как работало.
+
+> ✅ Логгер, который упоминается ниже: [скачать meshlog.py](meshlog.py)
+
+"""
+
+MARK_WIRING_NOTE = """
+---
+
+## Справочно: как это выглядит у Сергея
+
+{{svg:wiring}} | Распайка нод к флипперу — **это сторона Сергея, тебе она не нужна.** Показано, чтобы вы понимали друг друга, когда будете сводить логи.
+
+"""
+
+
+def transform_mark(md: str) -> str:
+    """Swap the flasher and prepend the note. Nothing else is touched."""
+    # His three images live on our flasher now, alongside ours.
+    md = md.replace(
+        "Веб-флешер: **flasher.meshcore.io**",
+        "Веб-флешер: **hleserg.github.io/meshcore-node-fw**",
+    )
+    md = md.replace("flasher.meshcore.io", "hleserg.github.io/meshcore-node-fw")
+    return MARK_INTRO + md + MARK_WIRING_NOTE
+
+
+TRANSFORMS = {"mark": transform_mark}
 
 # Cached by the service worker. meshlog.py is here because the site offers it
 # for download and that download has to work offline too.
@@ -569,11 +608,29 @@ def main() -> int:
         if spec["file"] == "index.html":
             body, toc = build_index(), ""
         else:
-            path = os.path.join(SRC, spec["source"])
+            if spec.get("root_source"):
+                path = os.path.join(ROOT, spec["root_source"])
+                name_for_error = spec["root_source"]
+            else:
+                path = os.path.join(SRC, spec["source"])
+                name_for_error = spec["source"]
+
             if os.path.exists(path):
                 with open(path, encoding="utf-8") as handle:
                     md = handle.read()
+                transform = TRANSFORMS.get(spec.get("transform", ""))
+                if transform:
+                    md = transform(md)
+                    # Keep the transformed markdown next to the sources: it is
+                    # what actually got rendered, so a reviewer can diff it
+                    # against the original and see the two edits, and the
+                    # verifier can count sections against reality.
+                    if not args.check:
+                        effective = os.path.join(SRC, spec["file"].replace(".html", ".effective.md"))
+                        with open(effective, "w", encoding="utf-8", newline="\n") as out_handle:
+                            out_handle.write(md)
             else:
+                spec = dict(spec, source=name_for_error)
                 fallback = spec.get("fallback")
                 if not fallback:
                     problems.append(f"missing source: {spec['source']}")

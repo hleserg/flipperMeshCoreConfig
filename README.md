@@ -183,19 +183,50 @@ Both hardware UARTs are usable and interchangeable — pins 13/14 for the first,
 side by side. Rows are tagged with `node,role,hw` at the end of the line, which
 is how you tell which node heard what.
 
-### Where to solder on the node
+### Two blocks, two cables
 
-| Node | Header | Node RX ← Flipper 13 (TX) | Node TX → Flipper 14 (RX) | GND |
-| --- | --- | --- | --- | --- |
-| Heltec T114 (nRF52840) | P1 | UART1_RX, GPIO9 | UART1_TX, GPIO10 | pin 4 on P1 |
-| Heltec V4 (ESP32-S3) | J3 | GPIO47 | GPIO48 | pin 1 on J2 |
+The Flipper side is two non-overlapping four-pin blocks, one per UART:
+
+```
+block A (USART)    11 GND | 12 DETECT | 13 TX | 14 RX
+block B (LPUART)   15 TX  | 16 RX     | 17 DETECT | 18 GND
+```
+
+The node side is the same either way — **GND · DETECT · RX · TX** — so the two
+cables differ only in the order they land on the Flipper. Cable A is straight
+(11·12·13·14); cable B is rearranged (18·17·15·16). Any node goes in either
+block, with the matching cable.
+
+Where to solder, by header position:
+
+| Signal | Heltec T114, header P1 | Heltec V4, header J2 |
+| --- | --- | --- |
+| GND | **P1·4** | **J2·1** |
+| DETECT | **P1·8** = GPIO33 | **J2·12** = GPIO33 |
+| RX | **P1·12** = GPIO9 | **J2·13** = GPIO47 |
+| TX | **P1·13** = GPIO10 | **J2·14** = GPIO48 |
+
+Detect is GPIO33 on both boards, and on both everything is on a single header.
 
 Note the crossover: the Flipper's TX goes to the node's RX. Wiring TX to TX is
 the single most common reason a link stays silent.
 
-> On the T114 the silkscreen numbering does not match the Arduino GPIO
-> numbering. The pins above are from the pinout, but expect to confirm them on
-> the actual board — see `HANDOFF.md`.
+### DETECT: which transport the node uses
+
+The app holds pins 12 and 17 high for as long as it runs. A node samples that
+line **when it boots** and picks a transport from it:
+
+| Detect | Node |
+| --- | --- |
+| high | stays on serial — the Flipper drives it, its own radio stays down |
+| low | brings up its own radio (V4: WiFi AP, T114: BLE) for a phone |
+
+So: **plug in and reboot the node** to use the Flipper, **unplug and reboot** to
+use a phone. There is no hot switching — the node only asks once.
+
+> Pin 12 is PA13, which is also SWDIO. It is the only free pin in block A, so
+> there is no alternative — but with the Flipper's **Debug mode** on, the debug
+> peripheral owns it. Turn Debug off. The Connect screen says so when it is on.
 
 ### Powering the nodes
 

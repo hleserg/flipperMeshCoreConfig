@@ -151,11 +151,32 @@ the real UART layer at link time. **A new source directory needs a line in
 
 ## Wiring
 
-| Flipper | Direction | Node |
+Two non-overlapping four-pin blocks, one per UART:
+
+```
+block A (USART)    11 GND | 12 DETECT | 13 TX | 14 RX
+block B (LPUART)   15 TX  | 16 RX     | 17 DETECT | 18 GND
+```
+
+The node connector is identical for both — **GND · DETECT · RX · TX** — so the
+cables differ only in the order they land on the Flipper: cable A straight
+(11·12·13·14), cable B rearranged (18·17·15·16).
+
+| Signal | T114, header P1 | V4, header J2 |
 | --- | --- | --- |
-| pin 13 (TX, PB6) | → | node RX |
-| pin 14 (RX, PB7) | ← | node TX |
-| pin 18 (GND) | — | node GND |
+| GND | P1·4 | J2·1 |
+| DETECT | P1·8 = GPIO33 | J2·12 = GPIO33 |
+| RX | P1·12 = GPIO9 | J2·13 = GPIO47 |
+| TX | P1·13 = GPIO10 | J2·14 = GPIO48 |
+
+**DETECT** (`detect/meshcore_detect.c`) is driven high for the app's lifetime
+and released on exit. A node samples it *at boot*: high means stay on serial,
+low means bring up its own radio. Hence "plug in and reboot" / "unplug and
+reboot" — there is no hot switching.
+
+Pin 12 is PA13, also SWDIO, and the only free pin in block A. With the Flipper's
+Debug mode enabled the debug peripheral owns it; the app reads the pin back and
+warns on the Connect screen rather than assuming.
 
 115200 8N1. Flipper GPIO is 3.3 V, same as both target nodes — no level
 shifter needed. The Flipper has **no USB host**, so the node must expose the
