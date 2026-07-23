@@ -1,8 +1,13 @@
 /*
  * UART layer: a thin wrapper over furi_hal_serial.
  *
- * Knows nothing about MeshCore — it moves bytes. Pins 13 (TX) / 14 (RX) /
- * 18 (GND), 115200 8N1, which is USART1 on the Flipper (FuriHalSerialIdUsart).
+ * Knows nothing about MeshCore — it moves bytes. Both of the Flipper's
+ * hardware ports are usable and interchangeable as far as this layer cares:
+ *
+ *   FuriHalSerialIdUsart   pin 13 = TX, pin 14 = RX
+ *   FuriHalSerialIdLpuart  pin 15 = TX, pin 16 = RX
+ *
+ * GND is pin 18 (or 8 / 11). 115200 8N1 on either.
  *
  * RX arrives in interrupt context and is parked in a stream buffer, so
  * meshcore_uart_rx() blocks the *calling* thread, never the GUI thread.
@@ -11,6 +16,7 @@
 #pragma once
 
 #include <furi.h>
+#include <furi_hal_serial_types.h>
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -21,14 +27,17 @@
 
 typedef struct MeshCoreUart MeshCoreUart;
 
-/** Take over the USART and start receiving.
+/** Take over one of the ports and start receiving.
  *
  * Disables the expansion-module service for the duration, as required by
- * expansion.h before acquiring a serial handle.
+ * expansion.h before acquiring a serial handle. The service is global rather
+ * than per-port, so this is reference counted — with both ports open it is
+ * disabled once and restored only when the last one closes.
  *
- * @return  handle, or NULL if the USART is already in use.
+ * @param   serial_id  FuriHalSerialIdUsart or FuriHalSerialIdLpuart
+ * @return  handle, or NULL if that port is already in use.
  */
-MeshCoreUart* meshcore_uart_open(void);
+MeshCoreUart* meshcore_uart_open(FuriHalSerialId serial_id);
 
 /** Stop receiving, release the USART and restore the expansion service. */
 void meshcore_uart_close(MeshCoreUart* uart);

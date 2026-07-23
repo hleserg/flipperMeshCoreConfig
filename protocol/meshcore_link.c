@@ -11,14 +11,16 @@ void meshcore_link_init(MeshCoreLink* link) {
     mc_rx_init(&link->rx);
 }
 
-bool meshcore_link_open(MeshCoreLink* link, MeshCoreLog* log) {
+bool meshcore_link_open(MeshCoreLink* link, MeshCoreLog* log, FuriHalSerialId serial_id) {
     furi_assert(link);
     furi_assert(!link->uart);
 
     link->log = log;
+    link->payload_len = 0;
+    link->payload_parsed = false;
     mc_rx_init(&link->rx);
 
-    link->uart = meshcore_uart_open();
+    link->uart = meshcore_uart_open(serial_id);
     if(!link->uart) {
         meshcore_log_printf(log, "open: USART busy");
         return false;
@@ -75,8 +77,18 @@ bool meshcore_link_poll(MeshCoreLink* link, mc_event_t* ev, uint32_t timeout_ms)
         size_t len = 0;
         while(mc_rx_poll(&link->rx, link->payload, sizeof(link->payload), &len)) {
             meshcore_log_frame(link->log, false, link->payload, len);
-            if(mc_parse(link->payload, len, ev)) return true;
-            /* Code unknown to this build of meshcore_c: logged, then ignored. */
+            if(len == 0) continue; /* nothing addressable in an empty frame */
+
+            link->payload_len = len;
+            /* mc_parse fills ev->code from the payload even when it does not
+             * recognise the rest, so an undecoded frame still arrives with a
+             * usable code and its body in link->payload. */
+            link->payload_parsed = (mc_parse(link->payload, len, ev) == 1);
+            if(!link->payload_parsed) {
+                memset(ev, 0, sizeof(*ev));
+                ev->code = link->payload[0];
+            }
+            return true;
         }
 
         /* Signed difference so the tick counter wrapping around is harmless. */
@@ -122,6 +134,17 @@ bool meshcore_link_request(
         /* Anything else (a push, or a reply to an earlier command) is not what
          * we asked for — keep waiting until the deadline. */
     }
+}
+
+const uint8_t* meshcore_link_payload(const MeshCoreLink* link, size_t* len) {
+    furi_assert(link);
+    if(len) *len = link->payload_len;
+    return link->payload;
+}
+
+bool meshcore_link_parsed(const MeshCoreLink* link) {
+    furi_assert(link);
+    return link->payload_parsed;
 }
 
 uint32_t meshcore_link_rx_errors(const MeshCoreLink* link) {

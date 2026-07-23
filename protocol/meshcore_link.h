@@ -37,13 +37,15 @@ typedef struct {
     MeshCoreLog* log;
     mc_rx_t rx;
     uint8_t payload[MC_MAX_PAYLOAD]; /* scratch: last assembled payload */
+    size_t payload_len;
+    bool payload_parsed; /* meshcore_c recognised the code */
     uint8_t frame[MC_RX_BUFSZ]; /* scratch: outbound framed bytes  */
 } MeshCoreLink;
 
 /** Zero the struct. Safe to call on an already-closed link. */
 void meshcore_link_init(MeshCoreLink* link);
 
-bool meshcore_link_open(MeshCoreLink* link, MeshCoreLog* log);
+bool meshcore_link_open(MeshCoreLink* link, MeshCoreLog* log, FuriHalSerialId serial_id);
 void meshcore_link_close(MeshCoreLink* link);
 bool meshcore_link_is_open(const MeshCoreLink* link);
 
@@ -53,8 +55,21 @@ void meshcore_link_flush(MeshCoreLink* link);
 /** Frame `payload` and push it out. False if it would not fit. */
 bool meshcore_link_send(MeshCoreLink* link, const uint8_t* payload, size_t len);
 
-/** Pump the UART until one event decodes or the timeout expires. */
+/** Pump the UART until one frame arrives or the timeout expires.
+ *
+ * Frames whose code meshcore_c does not decode are still reported, with
+ * `ev->code` set from the payload and the body reachable through
+ * meshcore_link_payload(). That matters: RX_LOG_DATA (0x88) and the telemetry
+ * pushes are exactly such codes, and the Logger decodes them itself. Dropping
+ * them here would make the whole field-logging mode impossible. */
 bool meshcore_link_poll(MeshCoreLink* link, mc_event_t* ev, uint32_t timeout_ms);
+
+/** The payload behind the frame the last poll returned. Valid until the next
+ *  poll on this link, so consume it synchronously. */
+const uint8_t* meshcore_link_payload(const MeshCoreLink* link, size_t* len);
+
+/** Did meshcore_c decode the last frame, or is only the raw payload useful? */
+bool meshcore_link_parsed(const MeshCoreLink* link);
 
 /** Send `payload`, then wait for a reply carrying `want_code`.
  *

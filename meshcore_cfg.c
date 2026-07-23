@@ -23,8 +23,14 @@ static void meshcore_cfg_tick_event_callback(void* context) {
 /* Runs on the session worker thread whenever the node sends something nobody
  * asked for. Must stay trivial: no blocking, no GUI. Stage 2 replaces this
  * with real handling of MSG_WAITING. */
-static void meshcore_cfg_push_callback(const mc_event_t* event, void* context) {
+static void meshcore_cfg_push_callback(
+    const mc_event_t* event,
+    const uint8_t* payload,
+    size_t len,
+    void* context) {
     MeshCoreApp* app = context;
+    UNUSED(payload);
+    UNUSED(len);
     app->push_count++;
     app->last_push_code = event->code;
 
@@ -67,7 +73,10 @@ static MeshCoreApp* meshcore_cfg_app_alloc(void) {
         app->view_dispatcher, MeshCoreViewLoading, loading_get_view(app->loading));
 
     app->log = meshcore_log_alloc();
-    app->session = meshcore_session_alloc(app->log);
+    /* Configurator and Messenger share one node on the USART. The Logger runs
+     * its own session, so it can sit on either port. */
+    app->session = meshcore_session_alloc(app->log, FuriHalSerialIdUsart);
+    app->logger = meshcore_logger_alloc(app->log);
     memset(&app->node, 0, sizeof(app->node));
 
     meshcore_contacts_reset(&app->contacts);
@@ -107,6 +116,7 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
     /* Mailbox first: its worker calls into the session, so it must be gone
      * before the session is. */
     meshcore_mailbox_free(app->mailbox);
+    meshcore_logger_free(app->logger);
     meshcore_session_free(app->session);
     meshcore_log_free(app->log);
 

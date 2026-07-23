@@ -11,9 +11,30 @@
 struct MeshCoreUart {
     FuriHalSerialHandle* handle;
     FuriStreamBuffer* rx_stream;
-    Expansion* expansion;
     volatile uint32_t rx_errors; /* written from ISR, read from a worker thread */
 };
+
+/* The expansion service is global, not per-port, so with two ports open it
+ * must be disabled once and restored only when the last one closes. Opens and
+ * closes happen from scene code on one thread, so a plain counter is enough. */
+static Expansion* g_expansion;
+static uint32_t g_expansion_holders;
+
+static void meshcore_uart_expansion_hold(void) {
+    if(g_expansion_holders++ == 0) {
+        g_expansion = furi_record_open(RECORD_EXPANSION);
+        expansion_disable(g_expansion);
+    }
+}
+
+static void meshcore_uart_expansion_release(void) {
+    furi_assert(g_expansion_holders > 0);
+    if(--g_expansion_holders == 0) {
+        expansion_enable(g_expansion);
+        furi_record_close(RECORD_EXPANSION);
+        g_expansion = NULL;
+    }
+}
 
 /* Interrupt context: drain the peripheral into the stream buffer and get out.
  * A full buffer means the consumer is not keeping up; dropping is preferable
@@ -36,21 +57,19 @@ static void meshcore_uart_rx_isr(
     }
 }
 
-MeshCoreUart* meshcore_uart_open(void) {
+MeshCoreUart* meshcore_uart_open(FuriHalSerialId serial_id) {
     MeshCoreUart* uart = malloc(sizeof(MeshCoreUart));
     uart->handle = NULL;
     uart->rx_errors = 0;
     uart->rx_stream = furi_stream_buffer_alloc(MESHCORE_UART_RX_BUFSZ, 1);
 
-    /* The expansion service listens on the same USART; it has to let go first
-     * or the acquire below returns NULL. */
-    uart->expansion = furi_record_open(RECORD_EXPANSION);
-    expansion_disable(uart->expansion);
+    /* The expansion service may be listening on this port; it has to let go
+     * first or the acquire below returns NULL. */
+    meshcore_uart_expansion_hold();
 
-    uart->handle = furi_hal_serial_control_acquire(FuriHalSerialIdUsart);
+    uart->handle = furi_hal_serial_control_acquire(serial_id);
     if(!uart->handle) {
-        expansion_enable(uart->expansion);
-        furi_record_close(RECORD_EXPANSION);
+        meshcore_uart_expansion_release();
         furi_stream_buffer_free(uart->rx_stream);
         free(uart);
         return NULL;
@@ -72,8 +91,7 @@ void meshcore_uart_close(MeshCoreUart* uart) {
     furi_hal_serial_control_release(uart->handle);
 
     /* Order matters: enable only after the handle is released (expansion.h). */
-    expansion_enable(uart->expansion);
-    furi_record_close(RECORD_EXPANSION);
+    meshcore_uart_expansion_release();
 
     furi_stream_buffer_free(uart->rx_stream);
     free(uart);

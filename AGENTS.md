@@ -11,6 +11,8 @@ A Flipper Zero application that drives a **MeshCore** node over the Flipper's
   apply profiles from the SD card, trigger a self-advert.
 - **Messenger** — use the node as a radio: contact list, chats, composing and
   sending messages.
+- **Logger** — field logging for link testing: record what nodes hear to CSV on
+  the SD card, one file per metric, one directory per session.
 
 **The radio is never on the Flipper.** The node does the meshing, holds the
 keys and owns the identity; this app is a client for it. Nothing cryptographic
@@ -113,6 +115,10 @@ messenger/
   meshcore_contacts.h/.c   contact list mirrored from the node, ages, collector
   meshcore_messages.h/.c   RAM ring of recent messages, keyed by peer prefix
   meshcore_mailbox.h/.c    worker that drains incoming mail from the node
+logger/
+  meshcore_rxlog.h/.c      decodes the 0x88 RX log push; hex and SNR rendering
+  meshcore_csv.h/.c        CSV on SD, synced line by line
+  meshcore_logger.h/.c     LogNode, session dir, writer thread
 scenes/
   meshcore_scene_config.h  X-macro list — the single place scenes are registered
   meshcore_scene.h/.c      generated scene enum + handler tables
@@ -242,6 +248,96 @@ separate firmware builds (see the `*_repeater`, `*_room_server`,
 `*_companion_radio_*` PlatformIO envs). `mc_device_info_t.repeat` exists on
 fw_ver ≥ 9, and `mc_cmd_send_cmd` can push a CLI string to a node. Before
 building `scene_role`, confirm on hardware what a node actually accepts.
+
+## Logger mode
+
+Field logging for link testing: walk around with a node on the Flipper and end
+up with CSV you can plot. The schemas match `meshlog.py` so existing pipelines
+keep working.
+
+### Both ports are universal
+
+The Flipper has two hardware UARTs and either can take any node:
+
+| Port | TX | RX |
+| --- | --- | --- |
+| `FuriHalSerialIdUsart` | pin 13 | pin 14 |
+| `FuriHalSerialIdLpuart` | pin 15 | pin 16 |
+
+So role and hardware are properties of the **node**, discovered per node, not
+of the port. That is what `MeshCoreLogNode` exists for.
+
+### Detection: two independent axes
+
+1. **Interface — this decides the wire protocol, so it is the important one.**
+   - *companion* → the binary companion protocol (`<`/`>`, meshcore_c). Full
+     test set: RX log, telemetry, contacts, ping, send/receive.
+   - *repeater* → does **not** speak the companion protocol at all. It has a
+     text CLI, so it gets a different test set: poll stats over CLI (uptime,
+     packets, battery, noise floor). Checking that a repeater actually relays
+     is done with Trace Path *from a companion*, not from the repeater itself,
+     and is out of scope for this mode.
+2. **Hardware** — T114 (nRF52840) or V4 (ESP32-S3), from `SELF_INFO` /
+   `DEVICE_INFO` on a companion, or `infos` on a repeater's CLI.
+
+Detection on attach: send a companion self-info request. A framed reply means
+companion; text, a CLI prompt, or a timeout on the framed reply means try the
+CLI. Then read the model. *(Stage 4; stage 1 assumes companion on the USART.)*
+
+### Where the data comes from
+
+Companion, through meshcore_c:
+
+| Metric | Source |
+| --- | --- |
+| SNR / RSSI / raw packet | `RX_LOG_DATA` push (0x88); `RAW_DATA` 0x84 on some builds |
+| adverts, messages | `ADVERT`, `CONTACT_MSG_RECV`, `CHANNEL_MSG_RECV` |
+| telemetry | `GET_STATS` with `MC_STATS_CORE` / `RADIO` / `PACKETS` |
+| ping | `GET_CONTACTS` → `SEND_TXT_MSG` → wait for the ACK; RTT is the time to it |
+
+**meshcore_c declares `RX_LOG_DATA`, `RAW_DATA`, `TRACE_DATA` and `TELEMETRY`
+but does not decode them** — `mc_parse` returns 0. That is why
+`meshcore_link_poll` reports undecoded frames instead of skipping them, and why
+`logger/meshcore_rxlog.c` exists. Do not "fix" this by patching the vendored
+library; decode in our layer.
+
+The 0x88 layout is taken from the firmware (`MyMesh::logRxRaw`), and
+`Dispatcher::checkRecv()` calls it for **every** raw frame off the radio with
+no build flag and no runtime switch — so a stock companion build emits it for
+everything it hears, including packets it cannot parse.
+
+Repeater: a small text CLI handler, stage 5. meshcore_c is not applicable.
+Command names drift between versions — type `help` / `set help` on the node.
+
+### CSV schemas
+
+One directory per session: `/ext/apps_data/meshcore_cfg/logs/<session>/`.
+The `node,role,hw` tags go at the **end** of every row so the original
+`meshlog.py` column order is untouched.
+
+```
+rx_log:    ts,snr,rssi,lat,lon,acc,raw,node,role,hw
+telemetry: ts,batt_pct,voltage,noise_floor,rx_total,tx_total,recv_errors,lat,lon,acc,raw_bat,raw_radio,raw_pkts,node,role,hw
+ping:      ts,target,seq,ok,rtt_ms,lat,lon,acc,node,role,hw
+events:    ts,type,info,lat,lon,acc,raw,node,role,hw
+```
+
+Every row is synced to the card as it is written — pulling the power mid-walk
+loses at most the row in flight.
+
+### Rules that are easy to get wrong
+
+- **Position comes from the node, never the Flipper.** The Flipper has no GPS.
+  A node with no advertised position logs empty `lat`/`lon`/`acc`, as
+  `meshlog.py` does. A node advertising exactly 0,0 is treated as *no*
+  position — otherwise every walk lands in the Gulf of Guinea.
+- **Do not power nodes from the Flipper.** GND and data only; the node runs off
+  its own supply.
+- **CSV rows are built on the session worker but written by a separate writer
+  thread.** A synced SD write can take tens of milliseconds, and the producing
+  thread is the one draining the UART — writing in place would overrun the
+  receive buffer. The queue is deliberately shallow and drops rather than
+  blocks; drops are counted and shown.
 
 ## Node firmware requirements
 

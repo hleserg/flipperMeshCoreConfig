@@ -28,6 +28,7 @@
 #include <gui/modules/text_box.h>
 #include <gui/modules/widget.h>
 
+#include "logger/meshcore_logger.h"
 #include "meshcore_log.h"
 #include "messenger/meshcore_contacts.h"
 #include "messenger/meshcore_mailbox.h"
@@ -92,6 +93,9 @@ typedef struct {
      * than a row number, because a contacts refresh can reorder the list. */
     uint8_t chat_peer[32];
     char chat_peer_name[MC_NAME_LEN + 1];
+
+    /* Logger — owns its own session, on whichever port the node is on. */
+    MeshCoreLogger* logger;
     /* The node's clock, from CURR_TIME. Contact ages are relative to this and
      * not to the Flipper's RTC, because that is the timebase last_advert is
      * expressed in. Zero means "not read yet". */

@@ -24,8 +24,17 @@
 #include "meshcore_link.h"
 #include "meshcore_route.h"
 
-/** Unsolicited event, delivered on the worker thread. */
-typedef void (*MeshCoreSessionEventCallback)(const mc_event_t* event, void* context);
+/** Unsolicited event, delivered on the worker thread.
+ *
+ * `payload` is the raw companion payload behind the event, valid only for the
+ * duration of the call. It is what makes codes meshcore_c does not decode
+ * usable — RX_LOG_DATA and the telemetry pushes arrive with `event->code` set
+ * and everything else only in `payload`. */
+typedef void (*MeshCoreSessionEventCallback)(
+    const mc_event_t* event,
+    const uint8_t* payload,
+    size_t len,
+    void* context);
 
 /** One frame of a multi-frame reply, delivered on the worker thread.
  *  Return true if it belonged to the stream, false to let it fall through to
@@ -34,7 +43,9 @@ typedef bool (*MeshCoreSessionStreamCallback)(const mc_event_t* event, void* con
 
 typedef struct MeshCoreSession MeshCoreSession;
 
-MeshCoreSession* meshcore_session_alloc(MeshCoreLog* log);
+/** @param serial_id which hardware port this session drives; a second session
+ *                   on the other port is how the Logger runs two nodes. */
+MeshCoreSession* meshcore_session_alloc(MeshCoreLog* log, FuriHalSerialId serial_id);
 void meshcore_session_free(MeshCoreSession* session);
 
 /** Open the UART and start pumping. False if the USART is unavailable. */

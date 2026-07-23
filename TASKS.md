@@ -50,6 +50,33 @@ Radio lives on the external node; the Flipper is the client.
       notifications (vibro + line)
 - [ ] `scene_channels` — public channels via `GET_CHANNEL`
 
+## Logger (field link testing)
+
+Radio on the nodes. Both Flipper UARTs are universal — role and hardware are
+discovered per node, not fixed per port.
+
+- [x] 1 — companion node on the USART, `RX_LOG_DATA` (0x88) → `rx_log.csv` on
+      SD, one directory per session, every row synced as written
+- [ ] 2 — companion telemetry: `GET_STATS` core/radio/packets → `telemetry.csv`
+- [ ] 3 — ping (RTT via ACK) → `ping.csv`; adverts and messages → `events.csv`
+- [ ] 4 — auto-detect interface (companion|repeater) and hardware (T114|V4),
+      fill `MeshCoreLogNode`, tag rows with role/hw
+- [ ] 5 — repeater branch: text CLI handler, stats polling → `telemetry.csv`
+      with `role=repeater`
+- [ ] 6 — second UART (LPUART) and multiple nodes at once, mixed roles
+- [ ] 7 — UI: live SNR/RTT, a button to drop a `mark` into `events.csv`,
+      pass/fail colouring against the acceptance thresholds
+
+Interactions this created with earlier work, already handled:
+
+- The UART layer now takes a port id, and the expansion-service disable is
+  reference counted — with two ports open it must be disabled once and restored
+  only when the last closes.
+- `meshcore_link_poll` used to **discard** frames meshcore_c could not decode.
+  `RX_LOG_DATA` is exactly such a frame, so the Logger would have received
+  nothing. Undecoded frames are now delivered with their raw payload.
+- The session event callback carries the raw payload for the same reason.
+
 ## Infrastructure
 
 - [x] Host test suite for the protocol layer (`test/`), Zig toolchain
@@ -89,6 +116,14 @@ To run in one batch once a node is on the bench:
       caveat in AGENTS.md) — decides if `scene_role` is an editor or read-only
 - [!] Confirm the Heltec V4 works on stock `heltec_v4_companion_radio_usb`
 - [!] Check that the log view's tick refresh does not fight manual scrolling
+- [!] Logger 1: a walk near the mesh fills `rx_log.csv` with SNR/RSSI rows
+- [!] Logger: confirm the timestamp format matches what `meshlog.py` wrote.
+      Currently ISO-8601 without a zone (`2026-07-23T12:34:56`), chosen blind —
+      **`meshlog.py` has not been seen**, so if it used epoch seconds the
+      column needs changing. One function, `meshcore_logger_timestamp()`.
+- [!] Logger: partial gate that needs no node — open Logger on the device and
+      confirm the session directory and `rx_log.csv` (with its header) appear
+      on the SD card. Verifiable over the Flipper CLI with `storage list`.
 
 ## Known gaps
 

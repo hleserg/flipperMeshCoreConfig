@@ -15,6 +15,11 @@ saved profiles from the SD card, and trigger a self-advert.
 **Messenger** — the Flipper as a pocket MeshCore client: the contact list from
 your mesh, chats, and composing messages on the Flipper's keyboard.
 
+**Logger** — field logging for link testing. Walk the route with a node on the
+Flipper and come back with CSV of everything it heard: SNR, RSSI, raw packets,
+telemetry, ping round-trips. Schemas match `meshlog.py`, so existing plotting
+scripts keep working.
+
 **The radio is not in the Flipper.** The node does the meshing, holds the keys
 and owns your identity; the Flipper is the screen and keyboard for it. Both
 modes talk to the node the same way, over the same three wires, so a node set
@@ -165,6 +170,56 @@ ufbt update --index-url=https://update.flipperzero.one/firmware/directory.json -
 The app uses no firmware-specific API, so it compiles against either. Note the
 asymmetry: a build made against official firmware also runs on Unleashed, but
 not the other way round — Unleashed's API minor version is ahead.
+
+## Logger
+
+Logs land in `/ext/apps_data/meshcore_cfg/logs/<session>/`, one directory per
+run, one CSV per metric: `rx_log.csv`, `telemetry.csv`, `ping.csv`,
+`events.csv`. Every row is flushed to the card as it is written, so yanking the
+power costs you at most the row in flight.
+
+Both hardware UARTs are usable and interchangeable — pins 13/14 for the first,
+15/16 for the second — so you can hang two nodes off one Flipper and log them
+side by side. Rows are tagged with `node,role,hw` at the end of the line, which
+is how you tell which node heard what.
+
+### Powering the nodes
+
+**Do not power a node from the Flipper.** Connect GND and the two data lines
+only; the node runs from its own battery or supply. The Flipper's 3.3 V rail is
+not meant to carry a LoRa node through a transmit burst, and a brownout
+mid-walk costs you the session.
+
+### Position
+
+Position is read **from the node**, not from the Flipper — the Flipper has no
+GPS. If the node has no position set, `lat`/`lon`/`acc` are written empty, the
+same as `meshlog.py` does.
+
+## Limitations
+
+**A repeater on the UART is a bench bring-up, not a field setup.** A repeater
+speaks a text CLI rather than the companion protocol, and on the **T114** that
+CLI sits on USB-CDC — the Flipper's hardware UART cannot reach it without
+rebuilding the firmware to route it to `Serial1`. On the **V4** (ESP32) the CLI
+is available on the UART, so bench work there is straightforward. In the field,
+repeaters are monitored **through the mesh**, not over a wire.
+
+**The main field configuration is a companion rover**: a T114 or V4 running a
+companion build, wired to the Flipper, walked around. That is what the Logger
+is built for; everything else is a bench convenience.
+
+## Acceptance criteria
+
+Thresholds the Logger evaluates a link against:
+
+- **SNR ≥ +5 dB**
+- **Ping loss < 5 %**
+
+A route that holds both is a good link. Live pass/fail against these thresholds
+on the Flipper's screen — so a marginal stretch is obvious while you are still
+standing in it — is planned, not built yet; for now the CSV carries the numbers
+and the live display shows raw SNR and RSSI.
 
 ## Credits
 

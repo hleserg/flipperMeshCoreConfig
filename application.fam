@@ -25,6 +25,7 @@ App(
         "protocol/*.c",
         "protocol/meshcore_c/*.c",
         "messenger/*.c",
+        "logger/*.c",
         "scenes/*.c",
     ],
 )

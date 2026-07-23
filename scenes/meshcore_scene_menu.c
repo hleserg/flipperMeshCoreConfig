@@ -4,6 +4,7 @@
 typedef enum {
     MeshCoreMenuIndexConnect,
     MeshCoreMenuIndexMessenger,
+    MeshCoreMenuIndexLogger,
     MeshCoreMenuIndexRadio,
     MeshCoreMenuIndexIdentity,
     MeshCoreMenuIndexRole,
@@ -29,6 +30,7 @@ void meshcore_scene_menu_on_enter(void* context) {
 
     ITEM(app->node.valid ? "Reconnect" : "Connect", MeshCoreMenuIndexConnect);
     ITEM("Messenger", MeshCoreMenuIndexMessenger);
+    ITEM("Logger", MeshCoreMenuIndexLogger);
     ITEM("Radio", MeshCoreMenuIndexRadio);
     ITEM("Identity", MeshCoreMenuIndexIdentity);
     ITEM("Role", MeshCoreMenuIndexRole);
@@ -59,6 +61,9 @@ bool meshcore_scene_menu_on_event(void* context, SceneManagerEvent event) {
             /* Contacts is the messenger's entry point; chat, compose and
              * channels hang off it in later stages. */
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneContacts);
+            break;
+        case MeshCoreMenuIndexLogger:
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneLogger);
             break;
         case MeshCoreMenuIndexSerialLog:
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneLog);

@@ -13,6 +13,7 @@
  */
 #include <furi.h>
 
+#include "../logger/meshcore_rxlog.h"
 #include "../messenger/meshcore_contacts.h"
 #include "../messenger/meshcore_messages.h"
 #include "../protocol/meshcore_link.h"
@@ -333,7 +334,7 @@ static void link_begin(MeshCoreLink* link) {
     fake_uart_reset();
     fake_log_reset();
     meshcore_link_init(link);
-    assert(meshcore_link_open(link, fake_log_instance()));
+    assert(meshcore_link_open(link, fake_log_instance(), FuriHalSerialIdUsart));
 }
 
 /* Queue a reply as it would arrive on the wire: framed, radio->app. */
@@ -803,6 +804,80 @@ static void test_contacts_age(void) {
     CHECK(strlen(out) < MESHCORE_AGE_LEN, "an absurd age still fits MESHCORE_AGE_LEN");
 }
 
+/* ======================================================================== *
+ *  RX log push — the Logger's data source
+ * ======================================================================== */
+static void test_rxlog_parse(void) {
+    section("rx log: decoding the 0x88 push");
+
+    /* [0x88][snr*4][rssi][packet...] — the layout MyMesh::logRxRaw() writes. */
+    uint8_t payload[8];
+    payload[0] = MESHCORE_RXLOG_CODE;
+    payload[1] = (uint8_t)25; /* +6.25 dB */
+    payload[2] = (uint8_t)(int8_t)-92; /* dBm       */
+    payload[3] = 0xDE;
+    payload[4] = 0xAD;
+    payload[5] = 0xBE;
+    payload[6] = 0xEF;
+
+    MeshCoreRxLog rx;
+    CHECK(meshcore_rxlog_parse(payload, 7, &rx), "a well-formed push decodes");
+    CHECK_EQ_U32((uint8_t)rx.snr_q4, 25, "SNR is kept in quarter-dB");
+    CHECK(rx.rssi == -92, "RSSI is signed dBm: got %d", (int)rx.rssi);
+    CHECK_EQ_U32(rx.raw_len, 4, "packet length is the payload minus the 3-byte head");
+    CHECK(rx.raw[0] == 0xDE && rx.raw[3] == 0xEF, "packet bytes start right after RSSI");
+
+    /* A negative SNR is the normal case at the edge of range. */
+    payload[1] = (uint8_t)(int8_t)-30;
+    CHECK(meshcore_rxlog_parse(payload, 7, &rx), "still decodes");
+    CHECK(rx.snr_q4 == -30, "negative SNR survives the round trip");
+
+    /* The radio can log a runt with no packet body at all. */
+    CHECK(meshcore_rxlog_parse(payload, 3, &rx), "a header-only push is valid");
+    CHECK_EQ_U32(rx.raw_len, 0, "with an empty packet");
+
+    /* Rejections. */
+    CHECK(!meshcore_rxlog_parse(payload, 2, &rx), "too short to hold SNR and RSSI");
+    payload[0] = MC_PUSH_ADVERT;
+    CHECK(!meshcore_rxlog_parse(payload, 7, &rx), "a different push is not an RX log");
+}
+
+static void test_rxlog_format(void) {
+    section("rx log: rendering for CSV");
+
+    char snr[MESHCORE_SNR_LEN];
+
+    meshcore_rxlog_format_snr(0, snr, sizeof(snr));
+    CHECK_EQ_STR(snr, "0.00", "zero");
+    meshcore_rxlog_format_snr(25, snr, sizeof(snr));
+    CHECK_EQ_STR(snr, "6.25", "quarter-dB steps are exact");
+    meshcore_rxlog_format_snr(20, snr, sizeof(snr));
+    CHECK_EQ_STR(snr, "5.00", "a whole number still shows two decimals");
+    meshcore_rxlog_format_snr(-5, snr, sizeof(snr));
+    CHECK_EQ_STR(snr, "-1.25", "negative values keep their sign and magnitude");
+    meshcore_rxlog_format_snr(-1, snr, sizeof(snr));
+    CHECK_EQ_STR(snr, "-0.25", "a negative with a zero whole part is not lost");
+    /* -128 is the sentinel meshcore_c uses for "no SNR"; it must not overflow
+     * on negation. */
+    meshcore_rxlog_format_snr(-128, snr, sizeof(snr));
+    CHECK_EQ_STR(snr, "-32.00", "the extreme negative does not wrap");
+
+    char hex[16];
+    const uint8_t data[] = {0x00, 0x0F, 0xA5, 0xFF};
+    size_t n = meshcore_hex_encode(data, sizeof(data), hex, sizeof(hex));
+    CHECK_EQ_U32(n, 8, "two characters per byte");
+    CHECK_EQ_STR(hex, "000fa5ff", "lowercase, no separators, leading zeros kept");
+
+    n = meshcore_hex_encode(data, sizeof(data), hex, 5);
+    CHECK_EQ_U32(n, 4, "truncates to what fits");
+    CHECK_EQ_STR(hex, "000f", "and stays NUL-terminated");
+    CHECK(strlen(hex) < 5, "never writes past the buffer");
+
+    n = meshcore_hex_encode(data, 0, hex, sizeof(hex));
+    CHECK_EQ_U32(n, 0, "an empty packet renders as an empty field");
+    CHECK_EQ_STR(hex, "", "which is what the CSV column should hold");
+}
+
 /* ======================================================================== */
 int main(void) {
     printf("MeshCore Config — host protocol tests\n");
@@ -834,6 +909,9 @@ int main(void) {
     test_messages_from_event();
     test_messages_ring();
     test_messages_peer_filter();
+
+    test_rxlog_parse();
+    test_rxlog_format();
 
     test_contacts_collect();
     test_contacts_overflow();

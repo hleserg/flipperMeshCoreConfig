@@ -9,6 +9,7 @@
 struct MeshCoreSession {
     MeshCoreLink link;
     MeshCoreLog* log;
+    FuriHalSerialId serial_id;
 
     FuriThread* worker;
     volatile bool stop;
@@ -75,18 +76,24 @@ static int32_t meshcore_session_worker(void* context) {
         if(signal_reply) {
             furi_event_flag_set(session->flags, MESHCORE_SESSION_REPLY_FLAG);
         } else if(deliver_to_app && session->event_callback) {
-            session->event_callback(&event, session->event_context);
+            /* Hand over the raw payload too: the frame may carry a code
+             * meshcore_c does not decode, and the body is the only thing of
+             * value in it. Valid until the next poll, hence synchronous. */
+            size_t len = 0;
+            const uint8_t* payload = meshcore_link_payload(&session->link, &len);
+            session->event_callback(&event, payload, len, session->event_context);
         }
     }
 
     return 0;
 }
 
-MeshCoreSession* meshcore_session_alloc(MeshCoreLog* log) {
+MeshCoreSession* meshcore_session_alloc(MeshCoreLog* log, FuriHalSerialId serial_id) {
     MeshCoreSession* session = malloc(sizeof(MeshCoreSession));
 
     meshcore_link_init(&session->link);
     session->log = log;
+    session->serial_id = serial_id;
 
     session->worker = NULL;
     session->stop = false;
@@ -124,7 +131,7 @@ bool meshcore_session_start(MeshCoreSession* session) {
     furi_assert(session);
     if(session->running) return true;
 
-    if(!meshcore_link_open(&session->link, session->log)) return false;
+    if(!meshcore_link_open(&session->link, session->log, session->serial_id)) return false;
 
     session->stop = false;
     session->worker = furi_thread_alloc_ex(

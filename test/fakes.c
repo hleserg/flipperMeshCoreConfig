@@ -72,7 +72,8 @@ uint32_t fake_uart_starved_reads(void) {
     return g_starved;
 }
 
-MeshCoreUart* meshcore_uart_open(void) {
+MeshCoreUart* meshcore_uart_open(FuriHalSerialId serial_id) {
+    UNUSED(serial_id); /* the fake serves whichever port is asked for */
     return &g_uart;
 }
 
