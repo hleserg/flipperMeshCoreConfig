@@ -27,6 +27,7 @@ client (sends b"\\x3c", scans for 0x3e), and the meshcore_c constants.
 
 Usage:
     python meshcore_emulator.py --tcp 127.0.0.1:5000
+    python meshcore_emulator.py --tcp 127.0.0.1:5000 --scenario marginal
     python meshcore_emulator.py --serial COM7 --model v4 --name ROVER
 """
 
@@ -39,6 +40,7 @@ import logging
 import random
 import struct
 import time
+from collections import deque
 
 LOG = logging.getLogger("emulator")
 
@@ -79,18 +81,37 @@ RESP_CURR_TIME = 9
 RESP_NO_MORE_MESSAGES = 10
 RESP_BATT_AND_STORAGE = 12
 RESP_DEVICE_INFO = 13
+RESP_CONTACT_MSG_RECV_V3 = 16
 RESP_CHANNEL_INFO = 18
 RESP_STATS = 24
 
 STATS_CORE, STATS_RADIO, STATS_PACKETS = 0, 1, 2
 
-# ---------------------------------------------------------------- models
-MODELS = {
-    "t114": "Heltec T114",
-    "v4": "Heltec V4",
+# ---------------------------------------------------------------- pushes
+PUSH_ADVERT = 0x80
+PUSH_SEND_CONFIRMED = 0x82  # the reference client surfaces this as ACK
+PUSH_MSG_WAITING = 0x83
+PUSH_LOG_RX_DATA = 0x88
+
+# ---------------------------------------------------------------- scenarios
+# Chosen against the thresholds the Logger judges a link by — SNR >= +5 dB and
+# ping loss < 5 %. "good" clears both, "marginal" sits on the line, "drop"
+# fails both, so the thresholds themselves can be exercised.
+SCENARIOS = {
+    "good": {"snr_mean": 9.0, "snr_spread": 2.0, "loss": 0.00, "rssi_base": -78},
+    "marginal": {"snr_mean": 4.0, "snr_spread": 3.0, "loss": 0.15, "rssi_base": -104},
+    "drop": {"snr_mean": -2.0, "snr_spread": 4.0, "loss": 0.60, "rssi_base": -117},
 }
 
+MODELS = {"t114": "Heltec T114", "v4": "Heltec V4"}
+
 DEFAULT_CONTACTS = ["BASE", "REP1", "ROVER-M", "POCKET-S"]
+
+# How often unsolicited traffic appears, in seconds. Fast enough that a test
+# run produces data quickly, slow enough to look like a real quiet mesh.
+RX_LOG_PERIOD = (1.5, 4.0)
+ADVERT_PERIOD = (18.0, 30.0)
+INCOMING_MSG_PERIOD = (25.0, 50.0)
 
 
 def _cstr(text: str, width: int) -> bytes:
@@ -104,19 +125,26 @@ def _pubkey_for(name: str) -> bytes:
     return hashlib.sha256(("meshcore-emulator:" + name).encode()).digest()
 
 
+def _clamp_i8(value: int) -> int:
+    return max(-128, min(127, value))
+
+
 class NodeState:
     """What our fake node currently believes about itself."""
 
-    def __init__(self, name: str, model: str, contacts: list[str]):
+    def __init__(self, name: str, model: str, contacts: list[str], scenario: str):
         self.name = name
         self.model_key = model
         self.model = MODELS[model]
         self.public_key = _pubkey_for(name)
         self.started = time.monotonic()
 
-        # Radio settings, in the units the wire actually uses: frequency in
-        # kHz, bandwidth in Hz. They genuinely differ — the reference client
-        # encodes set_radio as freq*1000 and bw*1000 from MHz and kHz.
+        self.scenario_name = scenario
+        self.scenario = SCENARIOS[scenario]
+
+        # Radio settings in the units the wire actually uses: frequency in kHz,
+        # bandwidth in Hz. They genuinely differ — the reference client encodes
+        # set_radio as freq*1000 from MHz and bw*1000 from kHz.
         self.freq_khz = 869_525
         self.bw_hz = 250_000
         self.sf = 10
@@ -130,10 +158,18 @@ class NodeState:
 
         self.contacts = list(contacts)
 
-        # Counters that grow the way a working node's would.
         self.packets_recv = 0
         self.packets_sent = 0
         self.recv_errors = 0
+
+        # SNR is a random walk around the scenario mean rather than fresh noise
+        # each time: walking a route produces drift, not white noise, and the
+        # difference matters to anything that smooths or thresholds the data.
+        self._snr = self.scenario["snr_mean"]
+
+        # Messages the node is holding for the client, drained by
+        # SYNC_NEXT_MESSAGE exactly as real firmware does.
+        self.mailbox: deque[bytes] = deque()
 
     @property
     def uptime(self) -> int:
@@ -142,6 +178,31 @@ class NodeState:
     def battery_mv(self) -> int:
         """A slow, monotonic discharge curve — 4.15 V falling ~1 mV/s."""
         return max(3300, 4150 - self.uptime)
+
+    def next_snr_db(self) -> float:
+        """One step of the walk, kept inside a plausible band."""
+        spread = self.scenario["snr_spread"]
+        self._snr += random.gauss(0, spread / 3.0)
+        # Pull gently back towards the mean so it does not wander off forever.
+        self._snr += (self.scenario["snr_mean"] - self._snr) * 0.15
+        return max(-20.0, min(15.0, self._snr))
+
+
+def fake_packet() -> bytes:
+    """A byte string shaped like a MeshCore packet.
+
+    The reference client runs the RX log payload through its packet parser and
+    then reads route_type / payload_type out of the result, so this has to have
+    a plausible header rather than being pure noise. Route types 0 and 3 carry
+    a transport code, so 1 (flood) keeps it simple.
+    """
+    route_type = 1
+    payload_type = random.choice([0, 1, 2, 3, 4])
+    header = (payload_type << 2) | route_type
+    path_len = random.randint(0, 3)
+    path = bytes(random.getrandbits(8) for _ in range(path_len))
+    body = bytes(random.getrandbits(8) for _ in range(random.randint(8, 40)))
+    return bytes([header, path_len]) + path + body
 
 
 class CompanionEmulator:
@@ -152,6 +213,7 @@ class CompanionEmulator:
 
     def __init__(self, state: NodeState):
         self.state = state
+        self.hub: "Hub | None" = None
 
     # -- individual replies -------------------------------------------------
 
@@ -181,10 +243,10 @@ class CompanionEmulator:
         # brings the model and version strings, which is what identifies us.
         body = bytearray()
         body.append(9)  # fw_ver
-        body.append(175)  # max_contacts / 2  -> 350
+        body.append(175)  # max_contacts / 2 -> 350
         body.append(20)  # max_channels
         body += struct.pack("<I", 123456)  # ble_pin
-        body += _cstr("09-05-2026", 12)  # build date
+        body += _cstr("09-05-2026", 12)
         body += _cstr(s.model, 40)
         body += _cstr("v1.12.0", 20)
         body.append(0)  # repeat (fw_ver >= 9)
@@ -192,7 +254,7 @@ class CompanionEmulator:
 
     def _battery(self) -> bytes:
         # [12][millivolts u16][used_kb u32][total_kb u32] -- straight from
-        # MyMesh.cpp. Note the reference client calls this "level"; it is
+        # MyMesh.cpp. The reference client calls this "level"; it is
         # millivolts, not a percentage.
         return bytes([RESP_BATT_AND_STORAGE]) + struct.pack(
             "<HII", self.state.battery_mv(), 512, 8192
@@ -205,10 +267,14 @@ class CompanionEmulator:
                 "<HIHB", s.battery_mv(), s.uptime, s.recv_errors, 0
             )
         if kind == STATS_RADIO:
-            # Noise floor wanders a little, as a real receiver's does.
-            noise = -108 + random.randint(-3, 3)
+            noise = int(s.scenario["rssi_base"] - 10 + random.randint(-3, 3))
             return bytes([RESP_STATS, STATS_RADIO]) + struct.pack(
-                "<hbbII", noise, -95, 20, s.uptime // 10, s.uptime // 4
+                "<hbbII",
+                noise,
+                _clamp_i8(int(s.scenario["rssi_base"])),
+                _clamp_i8(int(s._snr * 4)),
+                s.uptime // 10,
+                s.uptime // 4,
             )
         if kind == STATS_PACKETS:
             return bytes([RESP_STATS, STATS_PACKETS]) + struct.pack(
@@ -237,8 +303,8 @@ class CompanionEmulator:
             body.append(0)  # out_path_len
             body += b"\0" * 64  # out_path
             body += _cstr(name, 32)
-            # Heard from progressively longer ago, so "last seen" is not
-            # identical for every row.
+            # Heard from progressively longer ago, so "last seen" differs row
+            # to row instead of every contact looking equally fresh.
             body += struct.pack("<I", now - index * 600)
             body += struct.pack("<i", s.lat)
             body += struct.pack("<i", s.lon)
@@ -247,6 +313,33 @@ class CompanionEmulator:
 
         frames.append(bytes([RESP_END_OF_CONTACTS]) + struct.pack("<I", now))
         return frames
+
+    def _send_text(self, payload: bytes) -> list[bytes]:
+        """SEND_TXT_MSG: acknowledge the hand-off, then confirm delivery later.
+
+        Delivery really is two steps on this protocol — MSG_SENT carries the
+        tag to watch for, and the ACK push arrives when (if) the far end
+        answers. Ping timing is measured across exactly that gap, so the delay
+        and the loss have to live in the second step, not the first.
+        """
+        state = self.state
+        state.packets_sent += 1
+
+        tag = bytes(random.getrandbits(8) for _ in range(4))
+        suggested_timeout = 6000
+        reply = bytes([RESP_SENT, 1]) + tag + struct.pack("<I", suggested_timeout)
+
+        lost = random.random() < state.scenario["loss"]
+        if lost:
+            LOG.info("ping tag %s: dropped (scenario %s)", tag.hex(), state.scenario_name)
+        elif self.hub:
+            # A real round trip over LoRa is tens to hundreds of milliseconds.
+            delay = random.uniform(0.12, 0.55)
+            self.hub.schedule(delay, bytes([PUSH_SEND_CONFIRMED]) + tag)
+
+        UNUSED = payload  # the text itself does not change our behaviour
+        del UNUSED
+        return [reply]
 
     # -- dispatch -----------------------------------------------------------
 
@@ -280,8 +373,14 @@ class CompanionEmulator:
         if cmd == CMD_SET_DEVICE_TIME:
             return [bytes([RESP_OK])]
 
+        if cmd in (CMD_SEND_TXT_MSG, CMD_SEND_CHANNEL_TXT_MSG):
+            return self._send_text(payload)
+
         if cmd == CMD_SYNC_NEXT_MESSAGE:
-            # Stage 2 fills the mailbox; for now the node has nothing queued.
+            # One message per command, exactly as the firmware does it: the
+            # client keeps asking until it hears NO_MORE_MESSAGES.
+            if self.state.mailbox:
+                return [self.state.mailbox.popleft()]
             return [bytes([RESP_NO_MORE_MESSAGES])]
 
         if cmd == CMD_SEND_SELF_ADVERT:
@@ -355,11 +454,121 @@ class FrameCodec:
             del self.buffer[: 3 + length]
 
 
-async def serve_tcp(host: str, port: int, emulator: CompanionEmulator) -> None:
+class Hub:
+    """Everything that pushes bytes at whoever is currently connected.
+
+    Unsolicited events are the half of this fixture that makes it useful: a
+    node that only answers questions cannot exercise a passive logger.
+    """
+
+    def __init__(self, emulator: CompanionEmulator):
+        self.emulator = emulator
+        self.state = emulator.state
+        self.writers: set = set()
+        self._tasks: set[asyncio.Task] = set()
+        emulator.hub = self
+
+    # -- plumbing -----------------------------------------------------------
+
+    def add(self, writer) -> None:
+        self.writers.add(writer)
+
+    def remove(self, writer) -> None:
+        self.writers.discard(writer)
+
+    def broadcast(self, payload: bytes) -> None:
+        frame = FrameCodec.encode(payload)
+        for writer in list(self.writers):
+            try:
+                writer.write(frame)
+            except Exception:  # noqa: BLE001 - a dead client is not our problem
+                self.writers.discard(writer)
+
+    def schedule(self, delay: float, payload: bytes) -> None:
+        """Send something after a delay, without blocking the caller."""
+
+        async def later():
+            await asyncio.sleep(delay)
+            self.broadcast(payload)
+
+        task = asyncio.create_task(later())
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    # -- the events themselves ---------------------------------------------
+
+    async def rx_log_loop(self) -> None:
+        """Every packet the radio hears, with SNR that drifts as you walk."""
+        while True:
+            await asyncio.sleep(random.uniform(*RX_LOG_PERIOD))
+            if not self.writers:
+                continue
+
+            snr_db = self.state.next_snr_db()
+            rssi = int(self.state.scenario["rssi_base"] + random.randint(-6, 6))
+            self.state.packets_recv += 1
+            if random.random() < 0.02:
+                self.state.recv_errors += 1
+
+            payload = (
+                bytes([PUSH_LOG_RX_DATA])
+                + struct.pack("<bb", _clamp_i8(int(snr_db * 4)), _clamp_i8(rssi))
+                + fake_packet()
+            )
+            self.broadcast(payload)
+
+    async def advert_loop(self) -> None:
+        while True:
+            await asyncio.sleep(random.uniform(*ADVERT_PERIOD))
+            if not self.writers or not self.state.contacts:
+                continue
+            who = random.choice(self.state.contacts)
+            self.broadcast(bytes([PUSH_ADVERT]) + _pubkey_for(who))
+
+    async def incoming_msg_loop(self) -> None:
+        """Queue a message, then tickle the client to come and drain it.
+
+        This is how the protocol really delivers mail: there is no push that
+        carries the text. The node says "something is waiting" and the client
+        pulls with SYNC_NEXT_MESSAGE until told there is nothing left.
+        """
+        counter = 0
+        while True:
+            await asyncio.sleep(random.uniform(*INCOMING_MSG_PERIOD))
+            if not self.writers or not self.state.contacts:
+                continue
+
+            counter += 1
+            sender = random.choice(self.state.contacts)
+            text = f"hello from {sender} #{counter}"
+
+            body = bytearray()
+            body.append(_clamp_i8(int(self.state._snr * 4)) & 0xFF)  # snr, quarter-dB
+            body.append(_clamp_i8(int(self.state.scenario["rssi_base"])) & 0xFF)
+            body.append(0)  # reserved
+            body += _pubkey_for(sender)[:6]
+            body.append(0xFF)  # path_len: heard direct
+            body.append(0)  # txt_type: plain
+            body += struct.pack("<I", int(time.time()))
+            body += text.encode("utf-8")
+
+            self.state.mailbox.append(bytes([RESP_CONTACT_MSG_RECV_V3]) + bytes(body))
+            self.broadcast(bytes([PUSH_MSG_WAITING]))
+            LOG.info("queued an incoming message from %s", sender)
+
+    def start(self) -> None:
+        for coro in (self.rx_log_loop(), self.advert_loop(), self.incoming_msg_loop()):
+            task = asyncio.create_task(coro)
+            self._tasks.add(task)
+            task.add_done_callback(self._tasks.discard)
+
+
+async def serve_tcp(host: str, port: int, emulator: CompanionEmulator, hub: Hub) -> None:
     async def on_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         peer = writer.get_extra_info("peername")
         LOG.info("client connected: %s", peer)
         codec = FrameCodec()
+        hub.add(writer)
         try:
             while True:
                 data = await reader.read(4096)
@@ -374,28 +583,61 @@ async def serve_tcp(host: str, port: int, emulator: CompanionEmulator) -> None:
         except (ConnectionResetError, BrokenPipeError):
             pass
         finally:
+            hub.remove(writer)
             LOG.info("client gone: %s", peer)
             writer.close()
 
     server = await asyncio.start_server(on_client, host, port)
     LOG.info("listening on %s:%d", host, port)
+    hub.start()
     async with server:
         await server.serve_forever()
+
+
+async def serve_serial(port: str, baud: int, emulator: CompanionEmulator, hub: Hub) -> None:
+    """Same node, on a real wire — for driving a Flipper through a USB-UART
+    bridge. The protocol layer does not change; only the pipe does."""
+    try:
+        import serial_asyncio  # type: ignore
+    except ImportError:
+        import serial_asyncio_fast as serial_asyncio  # type: ignore
+
+    reader, writer = await serial_asyncio.open_serial_connection(url=port, baudrate=baud)
+    LOG.info("serial open: %s @ %d", port, baud)
+
+    codec = FrameCodec()
+    hub.add(writer)
+    hub.start()
+    try:
+        while True:
+            data = await reader.read(256)
+            if not data:
+                await asyncio.sleep(0.01)
+                continue
+            for payload in codec.feed(data):
+                LOG.debug("<- cmd 0x%02X (%d bytes)", payload[0], len(payload))
+                for reply in emulator.handle(payload):
+                    writer.write(FrameCodec.encode(reply))
+                await writer.drain()
+    finally:
+        hub.remove(writer)
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Fake MeshCore companion node")
     transport = parser.add_mutually_exclusive_group(required=True)
     transport.add_argument("--tcp", metavar="HOST:PORT", help="e.g. 127.0.0.1:5000")
-    transport.add_argument("--serial", metavar="PORT", help="e.g. COM7 (stage 3)")
+    transport.add_argument("--serial", metavar="PORT", help="e.g. COM7 or /dev/ttyUSB0")
     parser.add_argument("--baud", type=int, default=115200)
     parser.add_argument("--model", choices=sorted(MODELS), default="t114")
     parser.add_argument("--name", default="EMU-1")
+    parser.add_argument("--scenario", choices=sorted(SCENARIOS), default="good")
     parser.add_argument(
         "--contacts",
         default=",".join(DEFAULT_CONTACTS),
         help="comma-separated fake contact names",
     )
+    parser.add_argument("--seed", type=int, help="fix the RNG for reproducible runs")
     parser.add_argument("--verbose", "-v", action="store_true")
     return parser
 
@@ -407,20 +649,28 @@ def main() -> int:
         format="%(asctime)s %(levelname)s %(message)s",
         datefmt="%H:%M:%S",
     )
+    if args.seed is not None:
+        random.seed(args.seed)
 
     contacts = [c.strip() for c in args.contacts.split(",") if c.strip()]
-    state = NodeState(args.name, args.model, contacts)
+    state = NodeState(args.name, args.model, contacts, args.scenario)
     emulator = CompanionEmulator(state)
+    hub = Hub(emulator)
 
-    LOG.info("pretending to be %s (%s), contacts: %s", state.name, state.model, contacts)
+    LOG.info(
+        "pretending to be %s (%s), scenario %s, contacts: %s",
+        state.name,
+        state.model,
+        state.scenario_name,
+        contacts,
+    )
 
-    if args.serial:
-        LOG.error("serial transport lands in stage 3; use --tcp for now")
-        return 2
-
-    host, _, port = args.tcp.partition(":")
     try:
-        asyncio.run(serve_tcp(host or "127.0.0.1", int(port or 5000), emulator))
+        if args.serial:
+            asyncio.run(serve_serial(args.serial, args.baud, emulator, hub))
+        else:
+            host, _, port = args.tcp.partition(":")
+            asyncio.run(serve_tcp(host or "127.0.0.1", int(port or 5000), emulator, hub))
     except KeyboardInterrupt:
         LOG.info("stopped")
     return 0
