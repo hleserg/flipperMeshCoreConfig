@@ -339,12 +339,18 @@ static void meshcore_logger_on_event(
         bool matched = false;
         size_t index = 0;
         uint32_t seq = 0;
+        uint32_t ack_code = 0;
+
+        /* From the raw payload, not from event->u.send_confirmed: meshcore_c
+         * wants eight bytes and leaves the union untouched when a node sends
+         * the four-byte form, which reads back as ack code zero and matches
+         * nothing. See meshcore_ping_parse_ack. */
+        if(!meshcore_ping_parse_ack(payload, len, &ack_code)) return;
 
         furi_mutex_acquire(logger->ping_mutex, FuriWaitForever);
         index = logger->ping.flight_index;
         seq = logger->ping.flight_seq;
-        matched = meshcore_ping_confirm(
-            &logger->ping, event->u.send_confirmed.ack_code, furi_get_tick(), &rtt);
+        matched = meshcore_ping_confirm(&logger->ping, ack_code, furi_get_tick(), &rtt);
         furi_mutex_release(logger->ping_mutex);
 
         if(matched) {
@@ -362,6 +368,17 @@ static void meshcore_logger_on_event(
                 sizeof(line.text));
             meshcore_logger_emit(logger, MeshCoreLogFilePing, &line);
             logger->ping_ok++;
+        } else {
+            /* An ack for something we are not timing. Worth saying: it means
+             * either the round trip outlived its timeout, or the tag did not
+             * match, and those are different problems with the same symptom of
+             * a ping.csv full of misses. */
+            meshcore_log_printf(
+                logger->log,
+                "ack %08lx unmatched (pending=%d want=%08lx)",
+                (unsigned long)ack_code,
+                (int)logger->ping.in_flight,
+                (unsigned long)logger->ping.expected_ack);
         }
         return;
     }

@@ -1356,6 +1356,47 @@ static void test_ping_tick_wrap(void) {
     CHECK_EQ_U32(rtt, 32, "elapsed time survives the wrap");
 }
 
+static void test_ping_parse_ack(void) {
+    section("ping: reading the ack tag off the wire");
+
+    uint32_t code = 0;
+
+    /* Four payload bytes after the code byte is the short form, and it is what
+     * the reference Python client accepts. meshcore_c demands eight and drops
+     * this, which is why the parsing is ours. */
+    const uint8_t short_form[] = {0x82, 0xF0, 0xE7, 0x11, 0x8E};
+    CHECK(meshcore_ping_parse_ack(short_form, sizeof(short_form), &code), "short form accepted");
+    CHECK_EQ_U32(code, 0x8E11E7F0u, "tag read little endian");
+
+    /* The long form appends a round trip. The tag is in the same place and
+     * everything after it is ignored. */
+    const uint8_t long_form[] = {0x82, 0xF0, 0xE7, 0x11, 0x8E, 0x2C, 0x01, 0x00, 0x00};
+    code = 0;
+    CHECK(meshcore_ping_parse_ack(long_form, sizeof(long_form), &code), "long form accepted");
+    CHECK_EQ_U32(code, 0x8E11E7F0u, "same tag, trailing bytes ignored");
+
+    /* A tag one byte short is not a tag. Accepting it would match a ping
+     * against three bytes of a real code and one byte of nothing. */
+    CHECK(!meshcore_ping_parse_ack(short_form, 4, &code), "truncated payload rejected");
+
+    const uint8_t other_push[] = {0x88, 0x01, 0x02, 0x03, 0x04};
+    CHECK(!meshcore_ping_parse_ack(other_push, sizeof(other_push), &code), "another push rejected");
+
+    CHECK(!meshcore_ping_parse_ack(NULL, 5, &code), "NULL rejected");
+
+    /* The tag SENT hands out and the tag the ack carries must round-trip, or
+     * every ping is a miss -- which is exactly what happened on the device. */
+    MeshCorePing ping;
+    meshcore_ping_init(&ping);
+    meshcore_ping_add(&ping, "BASE");
+    meshcore_ping_started(&ping, 0, 1, 0x8E11E7F0u, 1000);
+
+    CHECK(meshcore_ping_parse_ack(short_form, sizeof(short_form), &code), "parse for the match");
+    uint32_t rtt = 0;
+    CHECK(meshcore_ping_confirm(&ping, code, 1354, &rtt), "the parsed tag closes the ping");
+    CHECK_EQ_U32(rtt, 354, "round trip");
+}
+
 static void test_ping_timeout(void) {
     section("ping: giving up");
 
@@ -1480,6 +1521,7 @@ int main(void) {
     test_ping_resolve();
     test_ping_roundtrip();
     test_ping_tick_wrap();
+    test_ping_parse_ack();
     test_ping_timeout();
     test_ping_format();
 

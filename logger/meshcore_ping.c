@@ -7,6 +7,18 @@ void meshcore_ping_init(MeshCorePing* ping) {
     memset(ping, 0, sizeof(*ping));
 }
 
+bool meshcore_ping_parse_ack(const uint8_t* payload, size_t len, uint32_t* ack_code) {
+    if(payload == NULL || len < 5) return false;
+    if(payload[0] != MESHCORE_PING_ACK_CODE) return false;
+
+    if(ack_code != NULL) {
+        /* Little endian, matching the tag SENT handed out. */
+        *ack_code = (uint32_t)payload[1] | ((uint32_t)payload[2] << 8) |
+                    ((uint32_t)payload[3] << 16) | ((uint32_t)payload[4] << 24);
+    }
+    return true;
+}
+
 static MeshCorePingTarget* meshcore_ping_find(MeshCorePing* ping, const char* name) {
     for(size_t i = 0; i < ping->count; i++) {
         if(strncmp(ping->targets[i].name, name, MESHCORE_PING_NAME_LEN) == 0) {

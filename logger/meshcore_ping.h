@@ -43,6 +43,26 @@ typedef struct {
 
 void meshcore_ping_init(MeshCorePing* ping);
 
+/** Read the ack tag out of a SEND_CONFIRMED push, from the raw payload.
+ *
+ *  Ours rather than meshcore_c's on purpose. That library requires eight bytes
+ *  — an ack code and a round trip — and drops the frame otherwise, while the
+ *  reference Python client accepts four and reads only the code:
+ *
+ *      if len(data) >= 5:              # the 0x82 byte plus four
+ *          ack_data["code"] = dbuf.read(4).hex()
+ *
+ *  A node that sends the short form would therefore have every ack silently
+ *  discarded, and every ping recorded as a miss. So four is the minimum here
+ *  and anything after it is ignored.
+ *
+ *  `payload` includes the 0x82 code byte. False if it is not one, or too short. */
+bool meshcore_ping_parse_ack(const uint8_t* payload, size_t len, uint32_t* ack_code);
+
+/* SEND_CONFIRMED. Not named in meshcore_c's push enum in a form this file can
+ * use without dragging the whole header in. */
+#define MESHCORE_PING_ACK_CODE 0x82u
+
 /** Add a target by name. Ignored if the table is full or the name is already
  *  there. Returns false if it did not get added. */
 bool meshcore_ping_add(MeshCorePing* ping, const char* name);
