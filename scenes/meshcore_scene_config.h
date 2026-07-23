@@ -8,6 +8,7 @@
  * Deliberately has no include guard: it is included several times with a
  * different ADD_SCENE definition each time.
  */
+ADD_SCENE(meshcore, splash, Splash)
 ADD_SCENE(meshcore, menu, Menu)
 ADD_SCENE(meshcore, connect, Connect)
 ADD_SCENE(meshcore, contacts, Contacts)
