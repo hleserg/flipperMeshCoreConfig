@@ -113,6 +113,12 @@ static MeshCoreApp* meshcore_cfg_app_alloc(void) {
      * runs for the app's lifetime and no-ops until the session is connected,
      * so mail queued on the node is picked up as soon as we attach. */
     app->mailbox = meshcore_mailbox_alloc(app->session, &app->messages);
+    /* Load the durable history into the ring before the worker can touch it, so
+     * the chat opens with what was saved, and point the mailbox at the file so
+     * new mail is persisted as it is drained. */
+    app->msglog = meshcore_msglog_alloc();
+    meshcore_msglog_load(app->msglog, &app->messages);
+    meshcore_mailbox_set_msglog(app->mailbox, app->msglog);
     meshcore_session_set_event_callback(app->session, meshcore_cfg_push_callback, app);
     meshcore_mailbox_start(app->mailbox);
 
@@ -147,6 +153,8 @@ static void meshcore_cfg_app_free(MeshCoreApp* app) {
      * only running at exit if the user had pressed Connect. */
     meshcore_session_stop(app->session);
     meshcore_mailbox_free(app->mailbox);
+    /* After the mailbox worker has stopped, so nothing appends to it any more. */
+    meshcore_msglog_free(app->msglog);
     meshcore_logger_free(app->logger);
     meshcore_session_free(app->session);
     /* After everything that logs has stopped, so the file has the whole run in
