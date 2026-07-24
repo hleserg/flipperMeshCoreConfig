@@ -210,6 +210,7 @@ static const struct {
     {"channels", MeshCoreSceneChannels},
     {"addcontact", MeshCoreSceneAddContact},
     {"mycard", MeshCoreSceneMyCard},
+    {"import", MeshCoreSceneImport},
     {"profiles", MeshCoreSceneProfiles},
     {"radio", MeshCoreSceneRadio},
     {"identity", MeshCoreSceneIdentity},

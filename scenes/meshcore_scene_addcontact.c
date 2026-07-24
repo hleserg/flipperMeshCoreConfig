@@ -7,12 +7,13 @@
  * and adds the sender. So the first item just sends our advert and drops back
  * into a fresh Contacts read, where the newcomers show up. The second item is
  * for the one case adverts do not cover — handing our identity to someone with
- * a phone but no node in range — and shows our card to read across.
+ * a phone but no node in range — and shows our card to read across. The third
+ * imports a contact from a pasted meshcore://contact/add link (the documented
+ * share format) — a contact you were handed rather than heard.
  *
- * Importing a card by pasting a meshcore:// link, and rendering our card as a
- * QR, are deliberately not here: neither can be verified without a second radio
- * or a phone camera in the loop, and a button that only looks like it works is
- * worse than none in the field. See docs/contacts-and-mesh for the plan.
+ * Rendering our own card as a QR is deliberately still not here: a Flipper has
+ * no camera to verify a scan, and a 100+ char link is marginal at 64 px. See
+ * docs/contacts-and-mesh for the model.
  */
 #include "../meshcore_cfg.h"
 
@@ -23,6 +24,7 @@
 typedef enum {
     MeshCoreAddContactAdvert,
     MeshCoreAddContactMyCard,
+    MeshCoreAddContactImport,
 } MeshCoreAddContactItem;
 
 static int32_t meshcore_addcontact_advert_worker(void* context) {
@@ -68,6 +70,8 @@ void meshcore_scene_addcontact_on_enter(void* context) {
         app);
     submenu_add_item(
         submenu, "Share my card", MeshCoreAddContactMyCard, meshcore_addcontact_callback, app);
+    submenu_add_item(
+        submenu, "Import from link", MeshCoreAddContactImport, meshcore_addcontact_callback, app);
     submenu_set_selected_item(
         submenu, scene_manager_get_scene_state(app->scene_manager, MeshCoreSceneAddContact));
 
@@ -126,6 +130,11 @@ bool meshcore_scene_addcontact_on_event(void* context, SceneManagerEvent event) 
 
         if(index == MeshCoreAddContactMyCard) {
             scene_manager_next_scene(app->scene_manager, MeshCoreSceneMyCard);
+            return true;
+        }
+
+        if(index == MeshCoreAddContactImport) {
+            scene_manager_next_scene(app->scene_manager, MeshCoreSceneImport);
             return true;
         }
     }

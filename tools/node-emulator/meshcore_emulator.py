@@ -57,6 +57,7 @@ CMD_SEND_TXT_MSG = 2
 CMD_SEND_CHANNEL_TXT_MSG = 3
 CMD_GET_CONTACTS = 4
 CMD_GET_DEVICE_TIME = 5
+CMD_ADD_UPDATE_CONTACT = 9
 CMD_SET_DEVICE_TIME = 6
 CMD_SEND_SELF_ADVERT = 7
 CMD_SET_ADVERT_NAME = 8
@@ -408,10 +409,26 @@ class CompanionEmulator:
 
         if cmd == CMD_EXPORT_CONTACT:
             # NULL key (payload is just the command byte) means "export my own
-            # card". Real firmware returns a meshcore:// link carrying the advert;
-            # the public key hex is enough to be recognisable and round-trippable.
-            uri = ("meshcore://" + self.state.public_key.hex()).encode("ascii")
+            # card". The documented share format (docs.meshcore.io/qr_codes) is a
+            # query URI the mobile app can add; type 1 == companion/chat node.
+            name = self.state.name.replace(" ", "+")
+            uri = (
+                f"meshcore://contact/add?name={name}"
+                f"&public_key={self.state.public_key.hex()}&type=1"
+            ).encode("ascii")
             return [bytes([RESP_CONTACT_URI]) + uri]
+
+        if cmd == CMD_ADD_UPDATE_CONTACT and len(payload) >= 132:
+            # [9][pubkey 32][type][flags][path_len][path 64][adv_name 32]...
+            # The client adds a contact from a shared link this way. Store the
+            # name so it shows up in the next GET_CONTACTS — enough to prove the
+            # import round trip; the emulator keys contacts by name, not the
+            # imported pubkey, which is a test-fixture simplification.
+            name = payload[100:132].split(b"\0", 1)[0].decode("utf-8", "ignore")
+            if name and name not in self.state.contacts:
+                self.state.contacts.append(name)
+                LOG.info("contact imported via ADD_UPDATE_CONTACT: %s", name)
+            return [bytes([RESP_OK])]
 
         if cmd == CMD_SET_ADVERT_NAME:
             self.state.name = payload[1:].decode("utf-8", "ignore")
