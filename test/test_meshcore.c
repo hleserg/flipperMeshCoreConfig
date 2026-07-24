@@ -20,8 +20,8 @@
 #include "../logger/meshcore_ping.h"
 #include "../logger/meshcore_rxlog.h"
 #include "../logger/meshcore_telemetry.h"
-#include "../messenger/meshcore_contact_uri.h"
 #include "../messenger/meshcore_contacts.h"
+#include "../messenger/meshcore_share_uri.h"
 #include "../messenger/meshcore_messages.h"
 #include "../protocol/meshcore_link.h"
 #include "../protocol/meshcore_route.h"
@@ -1548,6 +1548,40 @@ static void test_contact_uri(void) {
     CHECK(!meshcore_contact_uri_parse(bad, &c), "type 5 rejected");
 }
 
+static void test_channel_uri(void) {
+    section("channel uri: parse a meshcore://channel/add share link");
+
+    char name[MC_NAME_LEN + 1];
+    uint8_t secret[MC_SECRET_LEN];
+    const char* secret_hex = "0123456789abcdef0123456789abcdef"; /* 32 hex = 16 bytes */
+
+    char uri[256];
+    snprintf(
+        uri,
+        sizeof(uri),
+        "meshcore://channel/add?name=River+Trip&secret=%s&region_scope=eu",
+        secret_hex);
+    CHECK(
+        meshcore_channel_uri_parse(uri, name, sizeof(name), secret),
+        "a channel link parses");
+    CHECK_EQ_STR(name, "River Trip", "channel name decodes");
+    CHECK(secret[0] == 0x01 && secret[1] == 0x23 && secret[15] == 0xef, "secret decoded from hex");
+
+    /* Secret is mandatory and must be exactly 32 hex chars. */
+    CHECK(
+        !meshcore_channel_uri_parse(
+            "meshcore://channel/add?name=x", name, sizeof(name), secret),
+        "missing secret rejected");
+    snprintf(uri, sizeof(uri), "meshcore://channel/add?secret=%s", "abcd");
+    CHECK(!meshcore_channel_uri_parse(uri, name, sizeof(name), secret), "short secret rejected");
+
+    /* A contact link is not a channel link. */
+    CHECK(
+        !meshcore_channel_uri_parse(
+            "meshcore://contact/add?public_key=x&type=1", name, sizeof(name), secret),
+        "contact link rejected by channel parser");
+}
+
 int main(void) {
     printf("MeshCore Config — host protocol tests\n");
     printf("library version %s\n", MESHCORE_COMPANION_VERSION);
@@ -1579,6 +1613,7 @@ int main(void) {
     test_messages_ring();
     test_messages_peer_filter();
     test_contact_uri();
+    test_channel_uri();
 
     test_parse_scaled();
     test_json_get();

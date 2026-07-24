@@ -69,6 +69,7 @@ CMD_SET_ADVERT_LATLON = 14
 CMD_GET_BATT_AND_STORAGE = 20
 CMD_DEVICE_QUERY = 22
 CMD_GET_CHANNEL = 31
+CMD_SET_CHANNEL = 32
 CMD_GET_STATS = 56
 CMD_SET_PATH_HASH_MODE = 61
 
@@ -168,6 +169,11 @@ class NodeState:
         self.lon = 37_618_423
 
         self.contacts = list(contacts)
+
+        # Channel slots 0-7. Slot 0 is the public channel (zero secret == "no
+        # secret"); the rest start empty and are filled by SET_CHANNEL. Each is
+        # (name, 16-byte secret).
+        self.channels: dict[int, tuple[str, bytes]] = {0: ("public", b"\0" * 16)}
 
         self.packets_recv = 0
         self.packets_sent = 0
@@ -461,8 +467,22 @@ class CompanionEmulator:
 
         if cmd == CMD_GET_CHANNEL:
             index = payload[1] if len(payload) > 1 else 0
-            body = bytes([index]) + _cstr("public", 32) + b"\0" * 16
+            name, secret = self.state.channels.get(index, ("", b"\0" * 16))
+            body = bytes([index]) + _cstr(name, 32) + secret
             return [bytes([RESP_CHANNEL_INFO]) + body]
+
+        if cmd == CMD_SET_CHANNEL and len(payload) >= 50:
+            # [32][idx][name 32][secret 16]. Store it so GET_CHANNEL reads it
+            # back, which is how the client confirms a create/join took.
+            index = payload[1]
+            name = payload[2:34].split(b"\0", 1)[0].decode("utf-8", "ignore")
+            secret = payload[34:50]
+            if name:
+                self.state.channels[index] = (name, secret)
+                LOG.info("channel set: slot %d = %s", index, name)
+            elif index in self.state.channels and index != 0:
+                del self.state.channels[index]  # empty name clears a private slot
+            return [bytes([RESP_OK])]
 
         LOG.info("unhandled command 0x%02X, answering OK", cmd)
         return [bytes([RESP_OK])]

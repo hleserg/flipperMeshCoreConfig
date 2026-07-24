@@ -14,7 +14,7 @@
  * than heard.
  */
 #include "../meshcore_cfg.h"
-#include "../messenger/meshcore_contact_uri.h"
+#include "../messenger/meshcore_share_uri.h"
 
 #define MESHCORE_IMPORT_EVENT_ADD 0x4B0u
 #define MESHCORE_IMPORT_EVENT_DONE 0x4B1u
