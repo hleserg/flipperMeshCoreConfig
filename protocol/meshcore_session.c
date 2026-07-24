@@ -291,23 +291,6 @@ bool meshcore_session_request_stream(
         session, payload, len, &want, collector, collector_context, event, timeout_ms);
 }
 
-bool meshcore_session_send(MeshCoreSession* session, const uint8_t* payload, size_t len) {
-    furi_assert(session);
-    if(!session->running) return false;
-
-    furi_mutex_acquire(session->request_lock, FuriWaitForever);
-    /* Same re-check as the exchange path: a concurrent stop takes this lock
-     * before closing the link. */
-    if(!session->running) {
-        furi_mutex_release(session->request_lock);
-        return false;
-    }
-    bool sent = meshcore_link_send(&session->link, payload, len);
-    furi_mutex_release(session->request_lock);
-
-    return sent;
-}
-
 uint32_t meshcore_session_rx_errors(MeshCoreSession* session) {
     furi_assert(session);
     return meshcore_link_rx_errors(&session->link);

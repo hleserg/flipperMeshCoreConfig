@@ -99,7 +99,4 @@ bool meshcore_session_request_stream(
     mc_event_t* event,
     uint32_t timeout_ms);
 
-/** Fire and forget, for commands with no reply worth waiting on. */
-bool meshcore_session_send(MeshCoreSession* session, const uint8_t* payload, size_t len);
-
 uint32_t meshcore_session_rx_errors(MeshCoreSession* session);
