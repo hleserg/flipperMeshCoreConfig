@@ -42,18 +42,24 @@ static int32_t meshcore_scene_compose_worker(void* context) {
      * clocks are synced (which the field procedure requires). */
     uint32_t sender_ts = (uint32_t)furi_hal_rtc_get_timestamp();
 
-    /* The 6-byte prefix is all an incoming message identifies a peer by, and
-     * it is what the node needs to route an outgoing one — the logger's ping
-     * sends to exactly this. */
-    size_t len = mc_cmd_send_txt_msg(
-        payload,
-        sizeof(payload),
-        MC_TXT_PLAIN,
-        0,
-        sender_ts,
-        app->chat_peer,
-        MESHCORE_PEER_LEN,
-        app->compose_buf);
+    /* A channel message goes to everyone on the channel; a direct message to
+     * one peer (the 6-byte prefix is all the node needs to route it — the
+     * logger's ping sends to exactly this). */
+    size_t len;
+    if(app->chat_is_channel) {
+        len = mc_cmd_send_channel_text(
+            payload, sizeof(payload), MC_TXT_PLAIN, app->chat_channel_idx, sender_ts, app->compose_buf);
+    } else {
+        len = mc_cmd_send_txt_msg(
+            payload,
+            sizeof(payload),
+            MC_TXT_PLAIN,
+            0,
+            sender_ts,
+            app->chat_peer,
+            MESHCORE_PEER_LEN,
+            app->compose_buf);
+    }
 
     if(len == 0) {
         app->worker_error = "Message too long.";
@@ -69,7 +75,12 @@ static int32_t meshcore_scene_compose_worker(void* context) {
          * messages by the same 6-byte peer the chat filters on. */
         MeshCoreMessage message;
         memset(&message, 0, sizeof(message));
-        memcpy(message.peer, app->chat_peer, MESHCORE_PEER_LEN);
+        if(app->chat_is_channel) {
+            message.is_channel = true;
+            message.channel_idx = app->chat_channel_idx;
+        } else {
+            memcpy(message.peer, app->chat_peer, MESHCORE_PEER_LEN);
+        }
         message.direction = MeshCoreMessageOutgoing;
         message.timestamp = sender_ts;
         message.snr_q4 = MC_SNR_NONE;
