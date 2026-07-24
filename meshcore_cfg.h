@@ -125,6 +125,10 @@ typedef struct {
      * name is at most MC_NAME_LEN; a separate buffer keeps it from clobbering a
      * half-typed message. */
     char identity_buf[MC_NAME_LEN + 1];
+    /* Backing buffer for the Add-contact "Import from link" keyboard. Holds a
+     * meshcore://contact/add?… share link; MC_MAX_TEXT covers a 64-hex key plus
+     * a name, and its own buffer keeps it clear of a half-typed message. */
+    char import_buf[MC_MAX_TEXT];
 
     /* Logger — owns its own session, on whichever port the node is on. */
     MeshCoreLogger* logger;

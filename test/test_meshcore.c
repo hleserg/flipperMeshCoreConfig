@@ -20,6 +20,7 @@
 #include "../logger/meshcore_ping.h"
 #include "../logger/meshcore_rxlog.h"
 #include "../logger/meshcore_telemetry.h"
+#include "../messenger/meshcore_contact_uri.h"
 #include "../messenger/meshcore_contacts.h"
 #include "../messenger/meshcore_messages.h"
 #include "../protocol/meshcore_link.h"
@@ -1490,6 +1491,63 @@ static void test_events_key_prefix(void) {
     CHECK(strlen(small) < sizeof(small), "truncated output still terminates");
 }
 
+static void test_contact_uri(void) {
+    section("contact uri: parse a meshcore://contact/add share link");
+
+    mc_contact_t c;
+    const char* key_hex =
+        "9cd8fcf22a47333b591d96a2b848b73f457b1bb1a3ea2453a885f9e5787765b1";
+
+    /* The documented example, verbatim. */
+    char uri[256];
+    snprintf(
+        uri,
+        sizeof(uri),
+        "meshcore://contact/add?name=Example+Contact&public_key=%s&type=1",
+        key_hex);
+    CHECK(meshcore_contact_uri_parse(uri, &c), "the documented example parses");
+    CHECK_EQ_STR(c.adv_name, "Example Contact", "'+' decodes to a space");
+    CHECK_EQ_U32(c.type, 1, "type");
+    CHECK_EQ_U32(c.out_path_len, 0xFF, "new contact floods to find a path");
+    CHECK(c.public_key[0] == 0x9c && c.public_key[1] == 0xd8 && c.public_key[31] == 0xb1,
+          "public key decoded from hex");
+
+    /* Params in any order, and percent-encoding in the name. */
+    snprintf(
+        uri, sizeof(uri), "meshcore://contact/add?type=2&public_key=%s&name=A%%20B%%2BC", key_hex);
+    CHECK(meshcore_contact_uri_parse(uri, &c), "reordered params parse");
+    CHECK_EQ_STR(c.adv_name, "A B+C", "%20 and %2B decode");
+    CHECK_EQ_U32(c.type, 2, "type from reordered link");
+
+    /* An unknown param (region_scope) is ignored, name is optional. */
+    snprintf(
+        uri, sizeof(uri), "meshcore://contact/add?public_key=%s&type=3&region_scope=eu", key_hex);
+    CHECK(meshcore_contact_uri_parse(uri, &c), "unknown param ignored, name optional");
+    CHECK_EQ_STR(c.adv_name, "", "no name yields an empty name");
+    CHECK_EQ_U32(c.type, 3, "type");
+
+    /* Rejections: wrong scheme, missing key, bad key length, non-hex, bad type. */
+    CHECK(!meshcore_contact_uri_parse("http://example.com/", &c), "wrong scheme rejected");
+    CHECK(
+        !meshcore_contact_uri_parse("meshcore://contact/add?type=1", &c),
+        "missing public_key rejected");
+
+    char bad[256];
+    snprintf(bad, sizeof(bad), "meshcore://contact/add?public_key=%s&type=1", "abcd");
+    CHECK(!meshcore_contact_uri_parse(bad, &c), "short public_key rejected");
+
+    /* 64 chars but one is not hex. */
+    char nothex[128] = "meshcore://contact/add?public_key=";
+    for(int i = 0; i < 63; i++) strcat(nothex, "a");
+    strcat(nothex, "g&type=1");
+    CHECK(!meshcore_contact_uri_parse(nothex, &c), "non-hex public_key rejected");
+
+    snprintf(bad, sizeof(bad), "meshcore://contact/add?public_key=%s&type=0", key_hex);
+    CHECK(!meshcore_contact_uri_parse(bad, &c), "type 0 rejected");
+    snprintf(bad, sizeof(bad), "meshcore://contact/add?public_key=%s&type=5", key_hex);
+    CHECK(!meshcore_contact_uri_parse(bad, &c), "type 5 rejected");
+}
+
 int main(void) {
     printf("MeshCore Config — host protocol tests\n");
     printf("library version %s\n", MESHCORE_COMPANION_VERSION);
@@ -1520,6 +1578,7 @@ int main(void) {
     test_messages_from_event();
     test_messages_ring();
     test_messages_peer_filter();
+    test_contact_uri();
 
     test_parse_scaled();
     test_json_get();
