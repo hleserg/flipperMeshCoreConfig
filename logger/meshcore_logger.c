@@ -13,8 +13,10 @@
 #define MESHCORE_LOG_ROOT EXT_PATH("apps_data/meshcore_cfg")
 #define MESHCORE_LOG_DIR MESHCORE_LOG_ROOT "/logs"
 
-/* Worst case is an rx_log row: a 173-byte packet is 346 hex characters, plus
- * timestamp, signal fields and the node tags. */
+/* Worst case is an rx_log row: the raw packet can be the whole companion
+ * payload minus the 3-byte push header (up to MC_MAX_PAYLOAD-3 = 252 bytes =
+ * 504 hex characters), plus the timestamp, signal fields and node tags — still
+ * comfortably under this. */
 #define MESHCORE_LOG_LINE_MAX 640u
 /* LoRa packet rates are low, so a shallow queue is plenty; it exists to keep
  * SD latency off the UART thread, not to buffer a flood. */
@@ -310,9 +312,11 @@ static void meshcore_logger_on_event(
         char snr[MESHCORE_SNR_LEN];
         meshcore_rxlog_format_snr(rx.snr_q4, snr, sizeof(snr));
 
-        /* Hex the packet straight into the row. The buffer is sized for the
-         * largest frame the firmware will send, so this does not truncate. */
-        char raw[2 * 176 + 1];
+        /* Hex the packet straight into the row. Sized for the largest raw a
+         * 0x88 push can carry — the whole companion payload minus its 3-byte
+         * header — so a big flood/path-heavy packet is logged verbatim, not
+         * truncated. */
+        char raw[2 * MC_MAX_PAYLOAD + 1];
         meshcore_hex_encode(rx.raw, rx.raw_len, raw, sizeof(raw));
 
         /* ts,snr,rssi,lat,lon,acc,raw — acc is always empty, the companion

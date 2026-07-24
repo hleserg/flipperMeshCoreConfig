@@ -988,14 +988,16 @@ static void test_preset_builtin(void) {
     CHECK_EQ_U32(preset->bw_hz, 62500, "bandwidth in wire units");
     CHECK_EQ_U32(preset->sf, 7, "spreading factor");
     CHECK_EQ_U32(preset->cr, 7, "coding rate");
-    CHECK_EQ_U32(preset->path_hash_bytes, 2, "path hash bytes");
+    CHECK_EQ_U32(preset->path_hash_bytes, 1, "path hash bytes");
     CHECK(preset->built_in, "flagged as built in");
 
     const char* why = NULL;
     CHECK(meshcore_preset_validate(preset, &why), "and it passes validation");
 
-    /* The wire wants the mode, which is one less than the byte count. */
-    CHECK_EQ_U32(meshcore_preset_path_hash_mode(preset), 1, "2 bytes means mode 1");
+    /* The wire wants the mode, which is one less than the byte count. The
+     * everyday preset stays on 1-byte (mode 0) so v1.13.0-and-older nodes relay
+     * it. */
+    CHECK_EQ_U32(meshcore_preset_path_hash_mode(preset), 0, "1 byte means mode 0");
 
     char text[MESHCORE_PRESET_FIELD_LEN];
     meshcore_preset_format_freq(preset->freq_khz, text, sizeof(text));

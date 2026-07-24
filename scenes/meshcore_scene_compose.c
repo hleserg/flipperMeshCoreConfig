@@ -113,7 +113,9 @@ void meshcore_scene_compose_on_enter(void* context) {
         meshcore_scene_compose_input_done,
         app,
         app->compose_buf,
-        sizeof(app->compose_buf),
+        /* One packet's worth: the node carries at most MESHCORE_MSG_MAX chars in
+         * a single message, and we do not split. +1 for the NUL. */
+        MESHCORE_MSG_MAX + 1,
         true /* clear the buffer on the first key */);
 
     view_dispatcher_switch_to_view(app->view_dispatcher, MeshCoreViewTextInput);

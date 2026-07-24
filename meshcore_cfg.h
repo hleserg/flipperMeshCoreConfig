@@ -44,6 +44,12 @@
 /* How often scenes get a tick event (used by the log view to refresh). */
 #define MESHCORE_TICK_PERIOD_MS 500u
 
+/* A single MeshCore text message is limited to 133 characters (per the
+ * companion protocol; longer messages are meant to be split into [1/n] chunks).
+ * We do not chunk, so the compose keyboard is capped here — better to hold at
+ * one packet than to silently emit a message the mesh will not carry whole. */
+#define MESHCORE_MSG_MAX 133u
+
 /* View ids registered with the ViewDispatcher. One per UI module, not per
  * scene — several scenes reuse the same module. */
 typedef enum {
@@ -118,8 +124,11 @@ typedef struct {
      * peer key is unused and chat_peer_name holds the channel name. */
     bool chat_is_channel;
     uint8_t chat_channel_idx;
-    /* Backing buffer for the compose TextInput. MC_MAX_TEXT is the protocol's
-     * own message cap, so nothing here can exceed what a node will carry. */
+    /* Backing buffer for the compose TextInput. MC_MAX_TEXT sizes the buffer,
+     * but a single MeshCore message is capped at MESHCORE_MSG_MAX characters —
+     * the keyboard is limited to that so an over-length line cannot go out
+     * un-split (the spec asks for [1/n] chunking above this, which we do not do,
+     * so we hold the line at one packet's worth). */
     char compose_buf[MC_MAX_TEXT];
     /* Backing buffer for the Identity editor's TextInput (the node name). A
      * name is at most MC_NAME_LEN; a separate buffer keeps it from clobbering a

@@ -66,7 +66,11 @@ static const char* meshcore_channels_run(MeshCoreApp* app) {
         if(name[0] == '\0' && idx != 0) continue;
 
         const char* shown = (name[0] == '\0') ? "public" : name;
-        bool priv = ev.u.channel_info.have_secret != 0;
+        /* Slot 0 is the reserved public channel; 1-7 are private. Classify by
+         * index, not have_secret: CHANNEL_INFO always carries the 16-byte secret
+         * field (so have_secret is always set), and real firmware fills slot 0
+         * with the well-known public key, not zeros. */
+        bool priv = (idx != 0);
         if(meshcore_channels_seen(shown, priv)) continue;
 
         MeshCoreChannelRow* row = &channels.rows[channels.count++];
