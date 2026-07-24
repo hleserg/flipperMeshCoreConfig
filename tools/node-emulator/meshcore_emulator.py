@@ -60,6 +60,7 @@ CMD_GET_DEVICE_TIME = 5
 CMD_SET_DEVICE_TIME = 6
 CMD_SEND_SELF_ADVERT = 7
 CMD_SET_ADVERT_NAME = 8
+CMD_EXPORT_CONTACT = 17
 CMD_SYNC_NEXT_MESSAGE = 10
 CMD_SET_RADIO_PARAMS = 11
 CMD_SET_RADIO_TX_POWER = 12
@@ -82,6 +83,7 @@ RESP_SELF_INFO = 5
 RESP_SENT = 6
 RESP_CURR_TIME = 9
 RESP_NO_MORE_MESSAGES = 10
+RESP_CONTACT_URI = 11
 RESP_BATT_AND_STORAGE = 12
 RESP_DEVICE_INFO = 13
 RESP_CONTACT_MSG_RECV_V3 = 16
@@ -395,7 +397,21 @@ class CompanionEmulator:
             return [bytes([RESP_NO_MORE_MESSAGES])]
 
         if cmd == CMD_SEND_SELF_ADVERT:
+            # A real node gains contacts by *hearing* adverts, not sending them.
+            # To make the "advert -> new peer appears" round trip testable with a
+            # single emulator, pretend one neighbour heard us and advertised
+            # back: add it once, so the next GET_CONTACTS shows one more row.
+            if "NEWPEER" not in self.state.contacts:
+                self.state.contacts.append("NEWPEER")
+                LOG.info("advert heard back: added contact NEWPEER")
             return [bytes([RESP_OK])]
+
+        if cmd == CMD_EXPORT_CONTACT:
+            # NULL key (payload is just the command byte) means "export my own
+            # card". Real firmware returns a meshcore:// link carrying the advert;
+            # the public key hex is enough to be recognisable and round-trippable.
+            uri = ("meshcore://" + self.state.public_key.hex()).encode("ascii")
+            return [bytes([RESP_CONTACT_URI]) + uri]
 
         if cmd == CMD_SET_ADVERT_NAME:
             self.state.name = payload[1:].decode("utf-8", "ignore")

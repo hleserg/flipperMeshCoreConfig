@@ -107,6 +107,8 @@ static MeshCoreApp* meshcore_cfg_app_alloc(void) {
     memset(app->apply_result, 0, sizeof(app->apply_result));
     memset(app->chat_peer, 0, sizeof(app->chat_peer));
     app->chat_peer_name[0] = '\0';
+    app->chat_is_channel = false;
+    app->chat_channel_idx = 0;
     app->node_time = 0;
     app->push_count = 0;
     app->last_push_code = 0;
@@ -205,6 +207,9 @@ static const struct {
     {"logger", MeshCoreSceneLogger},
     {"connect", MeshCoreSceneConnect},
     {"contacts", MeshCoreSceneContacts},
+    {"channels", MeshCoreSceneChannels},
+    {"addcontact", MeshCoreSceneAddContact},
+    {"mycard", MeshCoreSceneMyCard},
     {"profiles", MeshCoreSceneProfiles},
     {"radio", MeshCoreSceneRadio},
     {"identity", MeshCoreSceneIdentity},

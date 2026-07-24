@@ -68,6 +68,9 @@ typedef struct {
 
     /* SELF_INFO */
     char name[MC_MAX_TEXT];
+    /* This node's own 32-byte identity, from SELF_INFO. What "My card" shows and
+     * what other nodes key their contact of us by. Zero until connected. */
+    uint8_t public_key[32];
     uint32_t freq_khz; /* radio_freq, kHz — 869525 == 869.525 MHz */
     /* radio_bw is in Hz, not kHz: the reference client encodes set_radio's
      * bandwidth as bw_kHz * 1000, so 250 kHz goes over the wire as 250000.
@@ -110,6 +113,11 @@ typedef struct {
      * than a row number, because a contacts refresh can reorder the list. */
     uint8_t chat_peer[32];
     char chat_peer_name[MC_NAME_LEN + 1];
+    /* The chat scene serves both a direct conversation and a channel. For a
+     * channel, chat_is_channel is true and chat_channel_idx says which; the
+     * peer key is unused and chat_peer_name holds the channel name. */
+    bool chat_is_channel;
+    uint8_t chat_channel_idx;
     /* Backing buffer for the compose TextInput. MC_MAX_TEXT is the protocol's
      * own message cap, so nothing here can exceed what a node will carry. */
     char compose_buf[MC_MAX_TEXT];

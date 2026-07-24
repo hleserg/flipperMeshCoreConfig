@@ -5,6 +5,7 @@ const FILES = [
   "./",
   "./index.html",
   "./app-guide.html",
+  "./contacts-and-mesh.html",
   "./guide-sergey.html",
   "./guide-mark.html",
   "./meshlog.py",

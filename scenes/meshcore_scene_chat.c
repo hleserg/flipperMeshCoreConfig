@@ -50,11 +50,20 @@ static void meshcore_scene_chat_build(MeshCoreApp* app) {
 
     size_t shown = 0;
 
-    /* The mailbox worker writes the store from another thread. */
+    /* Newest first — the text scroll always opens at the top and cannot be sent
+     * to the bottom, so the latest message has to be what shows up there. Walk
+     * the ring backwards (meshcore_messages_at is oldest-first). The store
+     * counts at least one message, so count-1 does not underflow the guard. */
     meshcore_mailbox_lock(app->mailbox);
-    for(size_t i = 0; i < app->messages.count; i++) {
+    for(size_t i = app->messages.count; i-- > 0;) {
         const MeshCoreMessage* message = meshcore_messages_at(&app->messages, i);
-        if(!meshcore_message_is_from(message, app->chat_peer)) continue;
+        /* A channel chat shows that channel's traffic; a direct chat shows the
+         * conversation with one peer. */
+        bool mine = app->chat_is_channel ?
+                        (message->is_channel && message->channel_idx == app->chat_channel_idx) :
+                        (!message->is_channel &&
+                         meshcore_message_is_from(message, app->chat_peer));
+        if(!mine) continue;
         meshcore_scene_chat_append(out, app, message);
         shown++;
     }

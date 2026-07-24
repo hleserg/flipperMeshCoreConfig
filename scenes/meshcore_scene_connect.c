@@ -22,6 +22,7 @@ static void meshcore_connect_copy_self_info(MeshCoreNodeInfo* node, const mc_sel
     node->bw_hz = info->radio_bw;
     node->sf = info->radio_sf;
     node->cr = info->radio_cr;
+    memcpy(node->public_key, info->public_key, sizeof(node->public_key));
     snprintf(node->name, sizeof(node->name), "%s", info->name);
 }
 

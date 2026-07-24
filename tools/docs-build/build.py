@@ -47,6 +47,11 @@ PAGES = [
         "source": "app-guide.md",
     },
     {
+        "file": "contacts-and-mesh.html",
+        "title": "Контакты и сеть",
+        "source": "contacts-and-mesh.md",
+    },
+    {
         "file": "guide-sergey.html",
         "title": "Полевой тест — Сергей",
         "source": "guide-sergey.md",
@@ -205,6 +210,7 @@ CACHE_FILES = [
     "./",
     "./index.html",
     "./app-guide.html",
+    "./contacts-and-mesh.html",
     "./guide-sergey.html",
     "./guide-mark.html",
     "./meshlog.py",
@@ -567,6 +573,12 @@ def build_index() -> str:
             "Мануал приложения",
             "для всех",
             "Что умеет приложение на флиппере: три режима, навигация по меню, пресеты, как читать экран логгера.",
+        ),
+        (
+            "contacts-and-mesh.html",
+            "Контакты и сеть",
+            "прочитать до похода",
+            "Почему одна частота = одна сеть, как контакт привязан к ноде, как добавить контакт без QR и отдать себя телефону. Чеклист «в лесу».",
         ),
         (
             "guide-sergey.html",
