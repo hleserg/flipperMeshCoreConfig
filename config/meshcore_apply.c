@@ -10,6 +10,8 @@ const char* meshcore_apply_step_name(MeshCoreApplyStep step) {
         return "Path hash";
     case MeshCoreApplyName:
         return "Name";
+    case MeshCoreApplyTxPower:
+        return "TX power";
     default:
         return "?";
     }
@@ -24,6 +26,8 @@ bool meshcore_apply_step_applies(const MeshCorePreset* preset, MeshCoreApplyStep
         /* Sending an empty name would wipe the node's own, which is not what
          * "this preset says nothing about names" means. */
         return preset->has_node_name && preset->node_name[0] != '\0';
+    case MeshCoreApplyTxPower:
+        return preset->has_tx_power;
     default:
         return false;
     }
@@ -55,6 +59,9 @@ size_t meshcore_apply_build(
     case MeshCoreApplyName:
         return mc_cmd_set_advert_name(out, cap, preset->node_name);
 
+    case MeshCoreApplyTxPower:
+        return mc_cmd_set_tx_power(out, cap, preset->tx_power);
+
     default:
         return 0;
     }
@@ -68,6 +75,11 @@ bool meshcore_apply_verify_radio(const MeshCorePreset* preset, const mc_self_inf
 bool meshcore_apply_verify_name(const MeshCorePreset* preset, const mc_self_info_t* info) {
     if(!preset->has_node_name) return true; /* nothing was asked for */
     return strncmp(info->name, preset->node_name, sizeof(preset->node_name)) == 0;
+}
+
+bool meshcore_apply_verify_tx(const MeshCorePreset* preset, const mc_self_info_t* info) {
+    if(!preset->has_tx_power) return true; /* nothing was asked for */
+    return info->tx_power == preset->tx_power;
 }
 
 bool meshcore_apply_verify_path_hash(

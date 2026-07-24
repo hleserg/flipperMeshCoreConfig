@@ -99,6 +99,14 @@ bool meshcore_preset_from_json(const char* json, MeshCorePreset* out, const char
                     out->path_hash_bytes = 1;
                 }
 
+                /* Optional: TX power in dBm. Absent means "leave the node's
+                 * power alone" (has_tx_power stays false). */
+                uint32_t tx = 0;
+                if(meshcore_json_get_uint(json, "tx_dbm", &tx) && tx >= 1 && tx <= 30) {
+                    out->has_tx_power = true;
+                    out->tx_power = (uint8_t)tx;
+                }
+
                 out->has_node_name = meshcore_json_get(
                     json, "node_name", out->node_name, sizeof(out->node_name));
                 out->has_role = meshcore_json_get(json, "role", out->role, sizeof(out->role));
