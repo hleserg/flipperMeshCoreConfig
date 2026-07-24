@@ -208,6 +208,7 @@ static const struct {
     {"connect", MeshCoreSceneConnect},
     {"contacts", MeshCoreSceneContacts},
     {"channels", MeshCoreSceneChannels},
+    {"channeladd", MeshCoreSceneChannelAdd},
     {"addcontact", MeshCoreSceneAddContact},
     {"mycard", MeshCoreSceneMyCard},
     {"import", MeshCoreSceneImport},
