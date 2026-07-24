@@ -34,12 +34,15 @@ static const uint32_t MESHCORE_RADIO_BW_HZ[] = {62500u, 125000u, 250000u, 500000
 #define MESHCORE_RADIO_SF_COUNT 8u /* SF5..SF12 */
 #define MESHCORE_RADIO_CR_MIN 5u
 #define MESHCORE_RADIO_CR_COUNT 4u /* 4/5..4/8 */
+#define MESHCORE_RADIO_TX_MIN 1u /* dBm; index 0 == 1 dBm */
+#define MESHCORE_RADIO_TX_MAX 30u /* selector upper bound if the node hides its max */
 
 typedef enum {
     MeshCoreRadioItemFreq,
     MeshCoreRadioItemBw,
     MeshCoreRadioItemSf,
     MeshCoreRadioItemCr,
+    MeshCoreRadioItemTx,
     MeshCoreRadioItemApply,
 } MeshCoreRadioItem;
 
@@ -52,6 +55,8 @@ static struct {
     uint8_t bw_index;
     uint8_t sf_index;
     uint8_t cr_index;
+    uint8_t tx_index; /* dBm = MESHCORE_RADIO_TX_MIN + tx_index */
+    uint8_t tx_count; /* selector length, from the node's max_tx_power */
     VariableItem* freq_item;
 } radio;
 
@@ -68,8 +73,10 @@ static void meshcore_radio_build_preset(MeshCorePreset* preset) {
     preset->bw_hz = MESHCORE_RADIO_BW_HZ[radio.bw_index];
     preset->sf = (uint8_t)(MESHCORE_RADIO_SF_MIN + radio.sf_index);
     preset->cr = (uint8_t)(MESHCORE_RADIO_CR_MIN + radio.cr_index);
+    preset->has_tx_power = true;
+    preset->tx_power = (uint8_t)(MESHCORE_RADIO_TX_MIN + radio.tx_index);
     /* Radio-only edit: leave path hash at the firmware default and touch no
-     * name, so apply sends SET_RADIO_PARAMS and nothing else. */
+     * name, so apply sends SET_RADIO_PARAMS (+ SET_TX_POWER) and nothing else. */
     preset->path_hash_bytes = 1;
     preset->has_node_name = false;
 }
@@ -104,6 +111,13 @@ static void meshcore_radio_cr_changed(VariableItem* item) {
     variable_item_set_current_value_text(item, text);
 }
 
+static void meshcore_radio_tx_changed(VariableItem* item) {
+    radio.tx_index = variable_item_get_current_value_index(item);
+    char text[8];
+    snprintf(text, sizeof(text), "%u dBm", (unsigned)(MESHCORE_RADIO_TX_MIN + radio.tx_index));
+    variable_item_set_current_value_text(item, text);
+}
+
 /* Nearest index for a value in a min+index set, clamped to the list. */
 static uint8_t meshcore_radio_nearest(uint32_t value, uint32_t min, uint8_t count) {
     if(value <= min) return 0;
@@ -127,6 +141,24 @@ static uint8_t meshcore_radio_bw_nearest(uint32_t bw_hz) {
 
 /* ---- apply worker ---- */
 
+/* Send one applicable step and wait for OK. Returns NULL, or a literal error.
+ * A step that does not apply is a no-op success. */
+static const char* meshcore_radio_send_step(
+    MeshCoreApp* app,
+    const MeshCorePreset* preset,
+    MeshCoreApplyStep step,
+    const char* refused) {
+    uint8_t payload[MC_MAX_PAYLOAD];
+    mc_event_t event;
+    size_t len = meshcore_apply_build(preset, step, payload, sizeof(payload));
+    if(len == 0) return NULL; /* nothing to send for this step */
+    if(!meshcore_session_request(
+           app->session, payload, len, MC_RESP_OK, &event, MESHCORE_LINK_TIMEOUT_MS)) {
+        return (event.code == MC_RESP_ERR) ? refused : "No answer from the node.";
+    }
+    return NULL;
+}
+
 static int32_t meshcore_radio_worker(void* context) {
     MeshCoreApp* app = context;
 
@@ -139,22 +171,21 @@ static int32_t meshcore_radio_worker(void* context) {
     /* Connect ourselves if needed, like the messenger — the user should not
      * have to visit Connect before applying. Idempotent when already up. */
     app->worker_error = meshcore_connect_ensure(app);
-    if(app->worker_error != NULL) {
-        view_dispatcher_send_custom_event(app->view_dispatcher, MESHCORE_RADIO_EVENT_DONE);
-        return 0;
+
+    /* Radio params, then TX power — two commands, one confirming read-back. */
+    if(app->worker_error == NULL) {
+        app->worker_error =
+            meshcore_radio_send_step(app, &preset, MeshCoreApplyRadio, "Node refused the settings.");
+    }
+    if(app->worker_error == NULL) {
+        app->worker_error =
+            meshcore_radio_send_step(app, &preset, MeshCoreApplyTxPower, "Node refused TX power.");
     }
 
-    size_t len = meshcore_apply_build(&preset, MeshCoreApplyRadio, payload, sizeof(payload));
-    if(len == 0) {
-        app->worker_error = "Could not build the command.";
-    } else if(!meshcore_session_request(
-                  app->session, payload, len, MC_RESP_OK, &event, MESHCORE_LINK_TIMEOUT_MS)) {
-        app->worker_error = (event.code == MC_RESP_ERR) ? "Node refused the settings." :
-                                                          "No answer from the node.";
-    } else {
+    if(app->worker_error == NULL) {
         /* Answered OK — now prove it took by re-reading, the same discipline as
-         * the Apply screen. */
-        len = mc_cmd_app_start(payload, sizeof(payload), MESHCORE_LINK_APP_NAME);
+         * the Apply screen. One SELF_INFO confirms both radio and TX power. */
+        size_t len = mc_cmd_app_start(payload, sizeof(payload), MESHCORE_LINK_APP_NAME);
         if(len == 0 || !meshcore_session_request(
                            app->session,
                            payload,
@@ -165,6 +196,8 @@ static int32_t meshcore_radio_worker(void* context) {
             app->worker_error = "Set, but could not confirm.";
         } else if(!meshcore_apply_verify_radio(&preset, &event.u.self_info)) {
             app->worker_error = "Node said OK but did not change.";
+        } else if(!meshcore_apply_verify_tx(&preset, &event.u.self_info)) {
+            app->worker_error = "TX power did not change.";
         } else {
             /* Confirmed: keep the app's view of the node in step so other
              * screens show the new numbers. */
@@ -172,13 +205,15 @@ static int32_t meshcore_radio_worker(void* context) {
             app->node.bw_hz = preset.bw_hz;
             app->node.sf = preset.sf;
             app->node.cr = preset.cr;
+            app->node.tx_power = preset.tx_power;
             meshcore_log_printf(
                 app->log,
-                "radio set: %lu kHz bw %lu sf%u cr%u",
+                "radio set: %lu kHz bw %lu sf%u cr%u tx%u",
                 (unsigned long)preset.freq_khz,
                 (unsigned long)preset.bw_hz,
                 (unsigned)preset.sf,
-                (unsigned)preset.cr);
+                (unsigned)preset.cr,
+                (unsigned)preset.tx_power);
         }
     }
 
@@ -219,6 +254,13 @@ static void meshcore_radio_populate(MeshCoreApp* app) {
     radio.bw_index = meshcore_radio_bw_nearest(app->node.bw_hz ? app->node.bw_hz : 250000u);
     radio.sf_index = meshcore_radio_nearest(app->node.sf ? app->node.sf : 11u, MESHCORE_RADIO_SF_MIN, MESHCORE_RADIO_SF_COUNT);
     radio.cr_index = meshcore_radio_nearest(app->node.cr ? app->node.cr : 5u, MESHCORE_RADIO_CR_MIN, MESHCORE_RADIO_CR_COUNT);
+    /* Offer 1 dBm..the node's max (falling back to 22 if it did not say). */
+    uint8_t tx_max = app->node.max_tx_power ? app->node.max_tx_power : 22u;
+    if(tx_max > MESHCORE_RADIO_TX_MAX) tx_max = MESHCORE_RADIO_TX_MAX;
+    if(tx_max < MESHCORE_RADIO_TX_MIN) tx_max = MESHCORE_RADIO_TX_MIN;
+    radio.tx_count = tx_max; /* values 1..tx_max */
+    radio.tx_index =
+        meshcore_radio_nearest(app->node.tx_power ? app->node.tx_power : 22u, MESHCORE_RADIO_TX_MIN, radio.tx_count);
 
     item = variable_item_list_add(
         list, "Freq", MESHCORE_RADIO_FREQ_STEPS, meshcore_radio_freq_changed, app);
@@ -243,6 +285,11 @@ static void meshcore_radio_populate(MeshCoreApp* app) {
         list, "CR", MESHCORE_RADIO_CR_COUNT, meshcore_radio_cr_changed, app);
     variable_item_set_current_value_index(item, radio.cr_index);
     snprintf(text, sizeof(text), "4/%u", (unsigned)(MESHCORE_RADIO_CR_MIN + radio.cr_index));
+    variable_item_set_current_value_text(item, text);
+
+    item = variable_item_list_add(list, "TX", radio.tx_count, meshcore_radio_tx_changed, app);
+    variable_item_set_current_value_index(item, radio.tx_index);
+    snprintf(text, sizeof(text), "%u dBm", (unsigned)(MESHCORE_RADIO_TX_MIN + radio.tx_index));
     variable_item_set_current_value_text(item, text);
 
     /* One value, used as a button: OK on it applies. */
@@ -278,11 +325,12 @@ bool meshcore_scene_radio_on_event(void* context, SceneManagerEvent event) {
             snprintf(
                 text,
                 sizeof(text),
-                "\e#Set and confirmed\n%s  %s\nSF%u  CR4/%u\n\nBack to edit more.",
+                "\e#Set and confirmed\n%s  %s\nSF%u  CR4/%u  %u dBm\n\nBack to edit more.",
                 freq,
                 bw,
                 (unsigned)preset.sf,
-                (unsigned)preset.cr);
+                (unsigned)preset.cr,
+                (unsigned)preset.tx_power);
         } else {
             snprintf(text, sizeof(text), "\e#Not set\n%s\n\nBack to try again.", app->worker_error);
         }

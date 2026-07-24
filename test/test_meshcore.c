@@ -1134,6 +1134,23 @@ static void test_apply_build(void) {
     CHECK_EQ_U32(out[0], MC_CMD_SET_ADVERT_NAME, "name command code");
     CHECK(memcmp(out + 1, "ROVER-1", 7) == 0, "name bytes");
 
+    /* TX power: skipped unless the preset carries one; a u32 dBm otherwise. */
+    CHECK(
+        !meshcore_apply_step_applies(&preset, MeshCoreApplyTxPower),
+        "no tx power means no tx step");
+    MeshCorePreset txp = sample_preset(false);
+    txp.has_tx_power = true;
+    txp.tx_power = 20;
+    CHECK(meshcore_apply_step_applies(&txp, MeshCoreApplyTxPower), "a preset with tx power sets it");
+    len = meshcore_apply_build(&txp, MeshCoreApplyTxPower, out, sizeof(out));
+    CHECK_EQ_U32(len, 5, "tx power payload length");
+    CHECK_EQ_U32(out[0], MC_CMD_SET_TX_POWER, "tx power command code");
+    CHECK_EQ_U32(
+        (uint32_t)out[1] | ((uint32_t)out[2] << 8) | ((uint32_t)out[3] << 16) |
+            ((uint32_t)out[4] << 24),
+        20,
+        "tx power dBm little-endian");
+
     /* A buffer too small must refuse rather than write a short command. */
     uint8_t tiny[2];
     CHECK_EQ_U32(
@@ -1172,6 +1189,16 @@ static void test_apply_verify(void) {
     /* A preset with no name asks nothing, so it cannot fail. */
     MeshCorePreset nameless = sample_preset(false);
     CHECK(meshcore_apply_verify_name(&nameless, &info), "an unset name is not a failure");
+
+    /* TX power: matches SELF_INFO.tx_power; an unset one asks nothing. */
+    MeshCorePreset txp = sample_preset(false);
+    txp.has_tx_power = true;
+    txp.tx_power = 20;
+    info.tx_power = 20;
+    CHECK(meshcore_apply_verify_tx(&txp, &info), "matching tx power verifies");
+    info.tx_power = 14;
+    CHECK(!meshcore_apply_verify_tx(&txp, &info), "a wrong tx power fails");
+    CHECK(meshcore_apply_verify_tx(&nameless, &info), "an unset tx power is not a failure");
 
     /* Path hash: reported only on fw_ver >= 10, so an old node must read as
      * unknown rather than as wrong. */

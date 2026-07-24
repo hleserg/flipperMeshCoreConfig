@@ -93,6 +93,10 @@ static int32_t meshcore_scene_apply_worker(void* context) {
            !meshcore_apply_verify_name(preset, &event.u.self_info)) {
             app->apply_result[MeshCoreApplyName] = MeshCoreApplyResultMismatch;
         }
+        if(app->apply_result[MeshCoreApplyTxPower] == MeshCoreApplyResultOk &&
+           !meshcore_apply_verify_tx(preset, &event.u.self_info)) {
+            app->apply_result[MeshCoreApplyTxPower] = MeshCoreApplyResultMismatch;
+        }
     } else {
         /* The re-read never came back. The node accepted the command but we
          * cannot see the result, which is exactly what [~] means — leaving an
@@ -103,6 +107,9 @@ static int32_t meshcore_scene_apply_worker(void* context) {
         }
         if(app->apply_result[MeshCoreApplyName] == MeshCoreApplyResultOk) {
             app->apply_result[MeshCoreApplyName] = MeshCoreApplyResultUnverifiable;
+        }
+        if(app->apply_result[MeshCoreApplyTxPower] == MeshCoreApplyResultOk) {
+            app->apply_result[MeshCoreApplyTxPower] = MeshCoreApplyResultUnverifiable;
         }
     }
 

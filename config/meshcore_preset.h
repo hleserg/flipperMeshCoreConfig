@@ -39,6 +39,12 @@ typedef struct {
     uint8_t cr; /* coding rate, 5..8                 */
     uint8_t path_hash_bytes; /* 1..3; the wire wants bytes - 1    */
 
+    /* TX power in dBm. Optional: a preset that says nothing about it leaves the
+     * node's power alone. Applied with SET_TX_POWER and confirmed against
+     * SELF_INFO.tx_power, the same read-back discipline as the radio params. */
+    bool has_tx_power;
+    uint8_t tx_power;
+
     bool has_node_name;
     char node_name[MESHCORE_PRESET_NODE_NAME_LEN];
 

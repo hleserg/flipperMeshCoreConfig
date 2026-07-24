@@ -32,6 +32,7 @@ typedef enum {
     MeshCoreApplyRadio,
     MeshCoreApplyPathHash,
     MeshCoreApplyName,
+    MeshCoreApplyTxPower,
 
     MeshCoreApplyStepCount,
 } MeshCoreApplyStep;
@@ -55,6 +56,7 @@ size_t meshcore_apply_build(
  *  SELF_INFO, which is what makes Apply's ticks mean something. */
 bool meshcore_apply_verify_radio(const MeshCorePreset* preset, const mc_self_info_t* info);
 bool meshcore_apply_verify_name(const MeshCorePreset* preset, const mc_self_info_t* info);
+bool meshcore_apply_verify_tx(const MeshCorePreset* preset, const mc_self_info_t* info);
 
 /** Path hash comes back in DEVICE_INFO, and only on fw_ver >= 10. On older
  *  firmware there is nothing to check against, so `checkable` says whether the
