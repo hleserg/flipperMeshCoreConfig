@@ -57,6 +57,14 @@ const MeshCoreMessage* meshcore_messages_at(const MeshCoreMessages* messages, si
 /** Turn a decoded event into a message. False if it was not a message at all. */
 bool meshcore_message_from_event(const mc_event_t* event, MeshCoreMessage* out);
 
+/** Serialize one message to a single line (no trailing newline) for the durable
+ *  SD history. Returns the length written, or 0 if it would not fit `cap`.
+ *  Newlines in the text are flattened to spaces so one message is one line. */
+size_t meshcore_message_encode(const MeshCoreMessage* message, char* out, size_t cap);
+
+/** Parse one such line back into a message. False if the line is malformed. */
+bool meshcore_message_decode(const char* line, MeshCoreMessage* out);
+
 /** Does this message belong to the conversation with `public_key`? Compares
  *  the 6-byte prefix, which is all an incoming message identifies a peer by. */
 bool meshcore_message_is_from(const MeshCoreMessage* message, const uint8_t* public_key);

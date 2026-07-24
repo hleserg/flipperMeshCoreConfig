@@ -14,6 +14,7 @@
 struct MeshCoreMailbox {
     MeshCoreSession* session;
     MeshCoreMessages* store;
+    MeshCoreMsgLog* msglog;
 
     FuriThread* worker;
     FuriEventFlag* flags;
@@ -71,6 +72,9 @@ static bool meshcore_mailbox_drain(MeshCoreMailbox* mailbox) {
             furi_mutex_acquire(mailbox->store_lock, FuriWaitForever);
             meshcore_messages_add(mailbox->store, &message);
             furi_mutex_release(mailbox->store_lock);
+            /* Persist outside the lock: SD latency must not stall a chat read.
+             * The message is a local copy, so this is safe to touch unlocked. */
+            if(mailbox->msglog) meshcore_msglog_append(mailbox->msglog, &message);
             stored_any = true;
         }
 
@@ -106,6 +110,7 @@ MeshCoreMailbox* meshcore_mailbox_alloc(MeshCoreSession* session, MeshCoreMessag
 
     mailbox->session = session;
     mailbox->store = store;
+    mailbox->msglog = NULL;
     mailbox->worker = NULL;
     mailbox->flags = furi_event_flag_alloc();
     mailbox->store_lock = furi_mutex_alloc(FuriMutexTypeNormal);
@@ -134,6 +139,11 @@ void meshcore_mailbox_set_callback(
     furi_assert(mailbox);
     mailbox->callback = callback;
     mailbox->context = context;
+}
+
+void meshcore_mailbox_set_msglog(MeshCoreMailbox* mailbox, MeshCoreMsgLog* msglog) {
+    furi_assert(mailbox);
+    mailbox->msglog = msglog;
 }
 
 void meshcore_mailbox_start(MeshCoreMailbox* mailbox) {

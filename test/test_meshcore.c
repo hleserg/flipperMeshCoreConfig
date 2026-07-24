@@ -1520,6 +1520,55 @@ static void test_events_key_prefix(void) {
     CHECK(strlen(small) < sizeof(small), "truncated output still terminates");
 }
 
+static void test_messages_encode(void) {
+    section("messages: serialize to a line and back for the SD history");
+
+    MeshCoreMessage direct;
+    memset(&direct, 0, sizeof(direct));
+    const uint8_t key[MESHCORE_PEER_LEN] = {0xAB, 0x01, 0x02, 0x03, 0x04, 0x05};
+    memcpy(direct.peer, key, MESHCORE_PEER_LEN);
+    direct.direction = MeshCoreMessageIncoming;
+    direct.timestamp = 1721800000u;
+    direct.snr_q4 = -20;
+    direct.path_len = 3;
+    /* A comma and a newline in the text must survive the round trip as data,
+     * not break the line format. */
+    snprintf(direct.text, sizeof(direct.text), "hi, mom\nsecond line");
+
+    char line[256];
+    size_t n = meshcore_message_encode(&direct, line, sizeof(line));
+    CHECK(n > 0, "encode writes a line");
+    CHECK(strchr(line, '\n') == NULL, "newline flattened so one message is one line");
+
+    MeshCoreMessage back;
+    CHECK(meshcore_message_decode(line, &back), "the line decodes");
+    CHECK(memcmp(back.peer, key, MESHCORE_PEER_LEN) == 0, "peer key survives");
+    CHECK_EQ_U32(back.direction, MeshCoreMessageIncoming, "direction");
+    CHECK_EQ_U32(back.timestamp, 1721800000u, "timestamp");
+    CHECK(back.snr_q4 == -20, "snr survives");
+    CHECK_EQ_U32(back.path_len, 3, "path length");
+    CHECK(!back.is_channel, "a direct message stays direct");
+    CHECK_EQ_STR(back.text, "hi, mom second line", "text (comma kept, newline flattened)");
+
+    /* Channel message: idx matters, peer is unused. */
+    MeshCoreMessage chan;
+    memset(&chan, 0, sizeof(chan));
+    chan.is_channel = true;
+    chan.channel_idx = 2;
+    chan.direction = MeshCoreMessageOutgoing;
+    snprintf(chan.text, sizeof(chan.text), "group hello");
+    n = meshcore_message_encode(&chan, line, sizeof(line));
+    CHECK(n > 0, "channel message encodes");
+    CHECK(meshcore_message_decode(line, &back), "channel line decodes");
+    CHECK(back.is_channel && back.channel_idx == 2, "channel idx survives");
+    CHECK_EQ_U32(back.direction, MeshCoreMessageOutgoing, "outgoing direction");
+    CHECK_EQ_STR(back.text, "group hello", "channel text");
+
+    /* Garbage must be refused, not half-parsed. */
+    CHECK(!meshcore_message_decode("not a message line", &back), "garbage rejected");
+    CHECK(!meshcore_message_decode("0,0,0,zz0102030405,1,0,0,x", &back), "bad hex peer rejected");
+}
+
 static void test_contact_uri(void) {
     section("contact uri: parse a meshcore://contact/add share link");
 
@@ -1641,6 +1690,7 @@ int main(void) {
     test_messages_from_event();
     test_messages_ring();
     test_messages_peer_filter();
+    test_messages_encode();
     test_contact_uri();
     test_channel_uri();
 

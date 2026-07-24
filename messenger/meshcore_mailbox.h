@@ -17,6 +17,7 @@
 
 #include "../protocol/meshcore_session.h"
 #include "meshcore_messages.h"
+#include "meshcore_msglog.h"
 
 /** Something new landed in the store. Runs on the mailbox worker thread, so it
  *  must not block or touch a view — post a custom event instead. */
@@ -31,6 +32,10 @@ void meshcore_mailbox_set_callback(
     MeshCoreMailbox* mailbox,
     MeshCoreMailboxCallback callback,
     void* context);
+
+/** Persist drained messages to the SD history. Optional: without it the mailbox
+ *  still fills the RAM store, just not the durable copy. */
+void meshcore_mailbox_set_msglog(MeshCoreMailbox* mailbox, MeshCoreMsgLog* msglog);
 
 void meshcore_mailbox_start(MeshCoreMailbox* mailbox);
 void meshcore_mailbox_stop(MeshCoreMailbox* mailbox);

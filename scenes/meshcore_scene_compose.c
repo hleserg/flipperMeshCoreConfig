@@ -94,6 +94,9 @@ static int32_t meshcore_scene_compose_worker(void* context) {
         meshcore_mailbox_lock(app->mailbox);
         meshcore_messages_add(&app->messages, &message);
         meshcore_mailbox_unlock(app->mailbox);
+        /* Persist the sent line too, so the chat history is whole across a
+         * restart — outside the lock, like the mailbox does for incoming. */
+        meshcore_msglog_append(app->msglog, &message);
 
         meshcore_log_printf(app->log, "sent to %.20s: %.40s", app->chat_peer_name, app->compose_buf);
     }

@@ -38,6 +38,7 @@
 #include "messenger/meshcore_contacts.h"
 #include "messenger/meshcore_mailbox.h"
 #include "messenger/meshcore_messages.h"
+#include "messenger/meshcore_msglog.h"
 #include "protocol/meshcore_session.h"
 #include "scenes/meshcore_scene.h"
 
@@ -115,6 +116,9 @@ typedef struct {
     MeshCoreContacts contacts;
     MeshCoreMessages messages;
     MeshCoreMailbox* mailbox;
+    /* The durable copy of `messages` on the SD card: loaded into the ring at
+     * startup, appended to as mail arrives and is sent. */
+    MeshCoreMsgLog* msglog;
     /* Which conversation scene_chat is showing. Held as the peer's key rather
      * than a row number, because a contacts refresh can reorder the list. */
     uint8_t chat_peer[32];
