@@ -51,9 +51,8 @@ bool meshcore_message_from_event(const mc_event_t* event, MeshCoreMessage* out) 
     case MC_RESP_CHANNEL_MSG_RECV_V3: {
         const mc_channel_msg_t* msg = &event->u.channel_msg;
         out->is_channel = true;
-        /* channel_idx is signed on the wire; a negative value means the frame
-         * was not addressed to a channel slot we track. */
-        out->channel_idx = (uint8_t)(msg->channel_idx < 0 ? 0 : msg->channel_idx);
+        /* channel_idx is a slot number 0-7 on the wire (parsed into an int8_t). */
+        out->channel_idx = (uint8_t)msg->channel_idx;
         out->timestamp = msg->sender_ts;
         out->snr_q4 = msg->snr_q4;
         out->path_len = msg->path_len;

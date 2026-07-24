@@ -47,10 +47,6 @@ void meshcore_link_init(MeshCoreLink* link);
 
 bool meshcore_link_open(MeshCoreLink* link, MeshCoreLog* log, FuriHalSerialId serial_id);
 void meshcore_link_close(MeshCoreLink* link);
-bool meshcore_link_is_open(const MeshCoreLink* link);
-
-/** Drop buffered bytes and reset the frame assembler. */
-void meshcore_link_flush(MeshCoreLink* link);
 
 /** Frame `payload` and push it out. False if it would not fit. */
 bool meshcore_link_send(MeshCoreLink* link, const uint8_t* payload, size_t len);
@@ -68,14 +64,15 @@ bool meshcore_link_poll(MeshCoreLink* link, mc_event_t* ev, uint32_t timeout_ms)
  *  poll on this link, so consume it synchronously. */
 const uint8_t* meshcore_link_payload(const MeshCoreLink* link, size_t* len);
 
-/** Did meshcore_c decode the last frame, or is only the raw payload useful? */
-bool meshcore_link_parsed(const MeshCoreLink* link);
-
 /** Send `payload`, then wait for a reply carrying `want_code`.
  *
  * Unsolicited pushes (0x80+) that arrive meanwhile are logged and skipped.
  * On a node-side failure the call returns false with `ev->code` set to
  * MC_RESP_ERR; on timeout `ev->code` is MESHCORE_LINK_NO_EVENT.
+ *
+ * Test-only: the app drives the link through the session worker
+ * (meshcore_session_exchange), never this synchronous helper. It exists so the
+ * host tests can exercise the send-then-wait logic without a session thread.
  */
 bool meshcore_link_request(
     MeshCoreLink* link,

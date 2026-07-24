@@ -155,11 +155,6 @@ typedef struct {
      * expressed in. Zero means "not read yet". */
     uint32_t node_time;
 
-    /* Written by the session worker thread when the node pushes something
-     * nobody asked for. Read by scenes; stage 2 turns this into real handling. */
-    volatile uint32_t push_count;
-    volatile uint8_t last_push_code;
-
     /* Scene named by the launch argument, opened once the dispatcher is
      * running rather than before it. Entering a scene that starts a worker
      * before view_dispatcher_run() means that worker posts into a queue nobody

@@ -33,8 +33,6 @@ static void meshcore_cfg_push_callback(
     MeshCoreApp* app = context;
     UNUSED(payload);
     UNUSED(len);
-    app->push_count++;
-    app->last_push_code = event->code;
 
     /* "Drain me": the node has mail for us. Waking the mailbox only sets an
      * event flag, which is all this callback may do — it runs on the session
@@ -110,8 +108,6 @@ static MeshCoreApp* meshcore_cfg_app_alloc(void) {
     app->chat_is_channel = false;
     app->chat_channel_idx = 0;
     app->node_time = 0;
-    app->push_count = 0;
-    app->last_push_code = 0;
 
     /* The mailbox must exist before the push callback can wake it. Its worker
      * runs for the app's lifetime and no-ops until the session is connected,

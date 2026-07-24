@@ -39,17 +39,6 @@ void meshcore_link_close(MeshCoreLink* link) {
     meshcore_log_printf(link->log, "close");
 }
 
-bool meshcore_link_is_open(const MeshCoreLink* link) {
-    furi_assert(link);
-    return link->uart != NULL;
-}
-
-void meshcore_link_flush(MeshCoreLink* link) {
-    furi_assert(link);
-    if(link->uart) meshcore_uart_rx_flush(link->uart);
-    mc_rx_init(&link->rx);
-}
-
 bool meshcore_link_send(MeshCoreLink* link, const uint8_t* payload, size_t len) {
     furi_assert(link);
     if(!link->uart || len == 0) return false;
@@ -140,11 +129,6 @@ const uint8_t* meshcore_link_payload(const MeshCoreLink* link, size_t* len) {
     furi_assert(link);
     if(len) *len = link->payload_len;
     return link->payload;
-}
-
-bool meshcore_link_parsed(const MeshCoreLink* link) {
-    furi_assert(link);
-    return link->payload_parsed;
 }
 
 uint32_t meshcore_link_rx_errors(const MeshCoreLink* link) {
