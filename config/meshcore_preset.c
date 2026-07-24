@@ -18,7 +18,11 @@ const MeshCorePreset MESHCORE_BUILTIN_PRESETS[] = {
         .bw_hz = 62500,
         .sf = 7,
         .cr = 7,
-        .path_hash_bytes = 2,
+        /* 1-byte path hash (mode 0). Firmware v1.13.0 and older DROP packets
+         * with multi-byte path hashes, so the everyday one-click preset stays
+         * on the legacy 1-byte form that every node on a mixed-version mesh can
+         * relay. Card presets can opt into 2-3 bytes where the whole mesh is new. */
+        .path_hash_bytes = 1,
         .has_node_name = false,
         .node_name = "",
         .has_role = false,

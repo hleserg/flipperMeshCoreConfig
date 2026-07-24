@@ -99,6 +99,7 @@ PUSH_ADVERT = 0x80
 PUSH_SEND_CONFIRMED = 0x82  # the reference client surfaces this as ACK
 PUSH_MSG_WAITING = 0x83
 PUSH_LOG_RX_DATA = 0x88
+PUSH_NEW_ADVERT = 0x8A  # carries a full contact record, unlike bare 0x80
 
 # ---------------------------------------------------------------- scenarios
 # Chosen against the thresholds the Logger judges a link by — SNR >= +5 dB and
@@ -130,6 +131,23 @@ def _cstr(text: str, width: int) -> bytes:
 def _pubkey_for(name: str) -> bytes:
     """Stable 32-byte identity per name, so restarts keep the same contacts."""
     return hashlib.sha256(("meshcore-emulator:" + name).encode()).digest()
+
+
+def _contact_record(name: str, last_advert: int, lat: int, lon: int, lastmod: int) -> bytes:
+    """The 147-byte contact record shared by the CONTACT (0x03) stream and the
+    NEW_ADVERT (0x8A) push — both are parsed by the client as one mc_contact_t."""
+    body = bytearray()
+    body += _pubkey_for(name)  # 32
+    body.append(1)  # type: chat node
+    body.append(0)  # flags
+    body.append(0)  # out_path_len
+    body += b"\0" * 64  # out_path
+    body += _cstr(name, 32)  # adv_name
+    body += struct.pack("<I", last_advert)
+    body += struct.pack("<i", lat)
+    body += struct.pack("<i", lon)
+    body += struct.pack("<I", lastmod)
+    return bytes(body)
 
 
 def _clamp_i8(value: int) -> int:
@@ -170,10 +188,13 @@ class NodeState:
 
         self.contacts = list(contacts)
 
-        # Channel slots 0-7. Slot 0 is the public channel (zero secret == "no
-        # secret"); the rest start empty and are filled by SET_CHANNEL. Each is
-        # (name, 16-byte secret).
-        self.channels: dict[int, tuple[str, bytes]] = {0: ("public", b"\0" * 16)}
+        # Channel slots 0-7. Slot 0 is the well-known public channel (its secret
+        # is the documented public key, not zeros, exactly like real firmware);
+        # the rest start empty and are filled by SET_CHANNEL. Each is (name,
+        # 16-byte secret).
+        self.channels: dict[int, tuple[str, bytes]] = {
+            0: ("public", bytes.fromhex("8b3387e9c5cdea6ac9e5edbaa115cd72"))
+        }
 
         self.packets_recv = 0
         self.packets_sent = 0
@@ -316,20 +337,10 @@ class CompanionEmulator:
 
         now = int(time.time())
         for index, name in enumerate(s.contacts):
-            body = bytearray()
-            body += _pubkey_for(name)  # 32
-            body.append(1)  # type
-            body.append(0)  # flags
-            body.append(0)  # out_path_len
-            body += b"\0" * 64  # out_path
-            body += _cstr(name, 32)
-            # Heard from progressively longer ago, so "last seen" differs row
-            # to row instead of every contact looking equally fresh.
-            body += struct.pack("<I", now - index * 600)
-            body += struct.pack("<i", s.lat)
-            body += struct.pack("<i", s.lon)
-            body += struct.pack("<I", now)
-            frames.append(bytes([RESP_CONTACT]) + bytes(body))
+            # Heard from progressively longer ago, so "last seen" differs row to
+            # row instead of every contact looking equally fresh.
+            record = _contact_record(name, now - index * 600, s.lat, s.lon, now)
+            frames.append(bytes([RESP_CONTACT]) + record)
 
         frames.append(bytes([RESP_END_OF_CONTACTS]) + struct.pack("<I", now))
         return frames
@@ -484,8 +495,12 @@ class CompanionEmulator:
                 del self.state.channels[index]  # empty name clears a private slot
             return [bytes([RESP_OK])]
 
-        LOG.info("unhandled command 0x%02X, answering OK", cmd)
-        return [bytes([RESP_OK])]
+        # A real node rejects a command it does not support with PACKET_ERROR
+        # (0x01) code 1, not a bare OK. Mirroring that keeps the emulator from
+        # masking an app bug where the client sends something the firmware would
+        # refuse. Every command the app actually builds is handled above.
+        LOG.info("unhandled command 0x%02X, answering ERR(1)", cmd)
+        return [bytes([RESP_ERR, 1])]
 
 
 class FrameCodec:
@@ -603,7 +618,15 @@ class Hub:
             if not self.writers or not self.state.contacts:
                 continue
             who = random.choice(self.state.contacts)
-            self.broadcast(bytes([PUSH_ADVERT]) + _pubkey_for(who))
+            # Real firmware sends NEW_ADVERT (0x8A) with a full contact record
+            # when it hears a fresh advert, and the bare ADVERT (0x80, key only)
+            # otherwise. Alternate so both client paths get exercised.
+            if random.random() < 0.5:
+                now = int(time.time())
+                record = _contact_record(who, now, self.state.lat, self.state.lon, now)
+                self.broadcast(bytes([PUSH_NEW_ADVERT]) + record)
+            else:
+                self.broadcast(bytes([PUSH_ADVERT]) + _pubkey_for(who))
 
     async def incoming_msg_loop(self) -> None:
         """Queue a message, then tickle the client to come and drain it.
